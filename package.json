@@ -4,6 +4,7 @@
   "description": "Xiaomi MiMo Studio to OpenAI-compatible bridge with futuristic UI",
   "type": "module",
   "main": "src/server.js",
+  "packageManager": "npm@11.7.0",
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
@@ -11,11 +12,11 @@
     "test": "node --test"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "dependencies": {
-    "cors": "latest",
-    "express": "latest",
-    "multer": "latest"
+    "cors": "2.8.6",
+    "express": "5.2.1",
+    "multer": "2.1.1"
   }
 }

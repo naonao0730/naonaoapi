@@ -46,6 +46,7 @@ loadEnv(path.join(ROOT, ".env"));
 
 export function createConfig(env = process.env) {
   return {
+    host: env.HOST || "0.0.0.0",
     port: Number(env.PORT || 3000),
     mimoBaseUrl: (env.MIMO_BASE_URL || "https://aistudio.xiaomimimo.com").replace(/\/$/, ""),
     cookie: env.MIMO_COOKIE || "",
@@ -605,11 +606,14 @@ export function createApp(config = createConfig()) {
 
 export function startServer(config = createConfig()) {
   const app = createApp(config);
-  const server = app.listen(config.port, () => {
-    console.log(`MiMo OpenAI Bridge running at http://localhost:${config.port}`);
+  const server = app.listen(config.port, config.host, () => {
+    console.log(`MiMo OpenAI Bridge listening on http://${config.host}:${config.port}`);
     if (config.runtimeState?.persistence?.mode === "memory") {
       console.warn(`State persistence fallback: memory mode (${config.runtimeState.persistence.lastError})`);
     }
+  });
+  server.on("error", (error) => {
+    console.error("MiMo OpenAI Bridge failed to start:", error);
   });
   return { app, server, config };
 }

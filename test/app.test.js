@@ -46,6 +46,15 @@ test("GET /health returns ok", async () => {
   assert.equal(payload.service, "mimo-openai-bridge");
 });
 
+test("createConfig defaults to a deployment-safe host and allows overrides", () => {
+  const defaults = createConfig({});
+  assert.equal(defaults.host, "0.0.0.0");
+
+  const overridden = createConfig({ HOST: "127.0.0.1", PORT: "4321" });
+  assert.equal(overridden.host, "127.0.0.1");
+  assert.equal(overridden.port, 4321);
+});
+
 test("GET / serves the dashboard", async () => {
   const response = await fetch(`${baseUrl}/`);
   assert.equal(response.status, 200);
