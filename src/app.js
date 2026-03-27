@@ -160,6 +160,15 @@ export function createApp(config = createConfig()) {
   app.use(express.urlencoded({ extended: true }));
   app.use(express.static(PUBLIC_DIR));
 
+  app.use(async (_req, res, next) => {
+    try {
+      await state.ready;
+      next();
+    } catch (error) {
+      res.status(500).json({ ok: false, error: formatError(error) });
+    }
+  });
+
   app.use("/v1", (req, res, next) => {
     if (!hasEnabledApiKeys(state)) {
       return next();

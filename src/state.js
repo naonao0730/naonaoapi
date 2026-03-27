@@ -22,15 +22,17 @@ export function createRuntimeState(config) {
       mode: "file",
       lastError: "",
     },
+    ready: Promise.resolve(),
   };
-
-  try {
-    saveAccountsStore(state);
-    saveKeysStore(state);
-  } catch (error) {
-    state.persistence.mode = "memory";
-    state.persistence.lastError = error instanceof Error ? error.message : String(error);
-  }
+  state.ready = Promise.resolve().then(() => {
+    try {
+      saveJson(state.accountsPath, state.accountsStore);
+      saveJson(state.keysPath, state.keysStore);
+    } catch (error) {
+      state.persistence.mode = "memory";
+      state.persistence.lastError = error instanceof Error ? error.message : String(error);
+    }
+  });
 
   return state;
 }

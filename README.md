@@ -74,3 +74,4 @@ http://localhost:3000
 - Managed MiMo accounts can be added directly by cookie, and the bridge can route them in `round_robin` or `single` mode.
 - Accounts track success/failure counts, last error, and consecutive failures. When failures reach `ACCOUNT_FAILURE_THRESHOLD`, the account enters cooldown for `ACCOUNT_COOLDOWN_MS`.
 - The dashboard can export and import the full managed account/key snapshot in `replace` or `merge` mode.
+- `/api/config` exposes the current persistence mode, so you can confirm whether the bridge is using `file` or fallback `memory`.
