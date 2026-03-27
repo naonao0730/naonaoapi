@@ -7,6 +7,28 @@ import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
+import {
+  authenticateApiKey,
+  createAccount,
+  createApiKey,
+  createRuntimeState,
+  deleteAccount,
+  deleteApiKey,
+  exportRuntimeState,
+  extractCookieValue,
+  getAccountsView,
+  getKeysView,
+  hasEnabledApiKeys,
+  hasUpstreamCredentials,
+  importRuntimeState,
+  patchAccount,
+  patchApiKey,
+  pickUpstreamAccount,
+  recordAccountFailure,
+  recordAccountSuccess,
+  setActiveAccount,
+  setRoutingStrategy,
+} from "./state.js";
 
 const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
@@ -36,6 +58,11 @@ export function createConfig(env = process.env) {
     maxToolRounds: Number(env.MAX_TOOL_ROUNDS || 4),
     enableExecTool: String(env.ENABLE_EXEC_TOOL || "false").toLowerCase() === "true",
     execToolCwd: env.EXEC_TOOL_CWD || ROOT,
+    accountStoreFile: env.ACCOUNT_STORE_FILE || path.join(ROOT, "data", "accounts.json"),
+    keyStoreFile: env.KEY_STORE_FILE || path.join(ROOT, "data", "bridge-keys.json"),
+    accountRoutingStrategy: env.ACCOUNT_ROUTING_STRATEGY || "round_robin",
+    accountFailureThreshold: Number(env.ACCOUNT_FAILURE_THRESHOLD || 3),
+    accountCooldownMs: Number(env.ACCOUNT_COOLDOWN_MS || 300000),
   };
 }
 
@@ -124,11 +151,29 @@ const TOOL_SYSTEM_PROMPT = [
 ].join("\n");
 
 export function createApp(config = createConfig()) {
+  const state = createRuntimeState(config);
+  config.runtimeState = state;
   const app = express();
+  app.locals.runtimeState = state;
   app.use(cors());
   app.use(express.json({ limit: "10mb" }));
   app.use(express.urlencoded({ extended: true }));
   app.use(express.static(PUBLIC_DIR));
+
+  app.use("/v1", (req, res, next) => {
+    if (!hasEnabledApiKeys(state)) {
+      return next();
+    }
+
+    const token = extractBearerToken(req.headers.authorization);
+    const apiKey = authenticateApiKey(state, token);
+    if (!apiKey) {
+      return sendOpenAIError(res, new Error("A valid Bearer API key is required"), 401, "authentication_error");
+    }
+
+    req.authenticatedKey = apiKey;
+    next();
+  });
 
   app.get("/health", (_req, res) => {
     res.json({ ok: true, service: "mimo-openai-bridge", time: new Date().toISOString() });
@@ -136,7 +181,18 @@ export function createApp(config = createConfig()) {
 
   app.get("/api/config", async (_req, res) => {
     try {
-      const botConfig = await getBotConfig(config);
+      let models = [];
+      let upstreamError = null;
+      if (hasUpstreamCredentials(config, state)) {
+        try {
+          const auth = pickUpstreamAccount(state, config);
+          const botConfig = await getBotConfig(config, auth);
+          models = normalizeModelsFromConfig(botConfig);
+        } catch (error) {
+          upstreamError = formatError(error);
+        }
+      }
+
       res.json({
         ok: true,
         config: {
@@ -145,8 +201,12 @@ export function createApp(config = createConfig()) {
           hasPhValue: Boolean(config.phValue),
           defaultModel: config.defaultModel,
           enableExecTool: config.enableExecTool,
-          models: normalizeModelsFromConfig(botConfig),
+          models,
           localTools: getEnabledLocalTools(config),
+          upstreamReady: hasUpstreamCredentials(config, state),
+          upstreamError,
+          accountPool: getAccountsView(state, config),
+          keyPool: getKeysView(state),
         },
       });
     } catch (error) {
@@ -156,6 +216,124 @@ export function createApp(config = createConfig()) {
 
   app.get("/api/tool-definitions", (_req, res) => {
     res.json({ ok: true, data: getEnabledLocalTools(config) });
+  });
+
+  app.get("/api/accounts", (_req, res) => {
+    res.json({ ok: true, data: getAccountsView(state, config) });
+  });
+
+  app.post("/api/accounts", (req, res) => {
+    try {
+      const account = createAccount(state, req.body || {});
+      res.json({ ok: true, data: account, accounts: getAccountsView(state, config) });
+    } catch (error) {
+      res.status(400).json({ ok: false, error: formatError(error) });
+    }
+  });
+
+  app.patch("/api/accounts/:accountId", (req, res) => {
+    try {
+      const account = patchAccount(state, req.params.accountId, req.body || {});
+      res.json({ ok: true, data: account, accounts: getAccountsView(state, config) });
+    } catch (error) {
+      res.status(400).json({ ok: false, error: formatError(error) });
+    }
+  });
+
+  app.delete("/api/accounts/:accountId", (req, res) => {
+    try {
+      deleteAccount(state, req.params.accountId);
+      res.json({ ok: true, accounts: getAccountsView(state, config) });
+    } catch (error) {
+      res.status(400).json({ ok: false, error: formatError(error) });
+    }
+  });
+
+  app.post("/api/accounts/strategy", (req, res) => {
+    try {
+      const routingStrategy = setRoutingStrategy(state, req.body?.routingStrategy);
+      res.json({ ok: true, data: { routingStrategy }, accounts: getAccountsView(state, config) });
+    } catch (error) {
+      res.status(400).json({ ok: false, error: formatError(error) });
+    }
+  });
+
+  app.post("/api/accounts/active", (req, res) => {
+    try {
+      const activeAccountId = setActiveAccount(state, req.body?.accountId || null);
+      res.json({ ok: true, data: { activeAccountId }, accounts: getAccountsView(state, config) });
+    } catch (error) {
+      res.status(400).json({ ok: false, error: formatError(error) });
+    }
+  });
+
+  app.post("/api/accounts/:accountId/check", async (req, res) => {
+    try {
+      const account = state.accountsStore.accounts.find((item) => item.id === req.params.accountId);
+      if (!account) {
+        return res.status(404).json({ ok: false, error: "account not found" });
+      }
+
+      const auth = {
+        source: "pool",
+        accountId: account.id,
+        name: account.name,
+        cookie: account.cookie,
+        phValue: account.phValue,
+      };
+      const data = await mimoRequest(config, auth, "GET", "/open-apis/user/mi/get");
+      res.json({ ok: true, data, accounts: getAccountsView(state, config) });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: formatError(error), accounts: getAccountsView(state, config) });
+    }
+  });
+
+  app.get("/api/keys", (_req, res) => {
+    res.json({ ok: true, data: getKeysView(state) });
+  });
+
+  app.post("/api/keys", (req, res) => {
+    try {
+      const result = createApiKey(state, req.body || {});
+      res.json({ ok: true, data: result, keys: getKeysView(state) });
+    } catch (error) {
+      res.status(400).json({ ok: false, error: formatError(error) });
+    }
+  });
+
+  app.patch("/api/keys/:keyId", (req, res) => {
+    try {
+      const key = patchApiKey(state, req.params.keyId, req.body || {});
+      res.json({ ok: true, data: key, keys: getKeysView(state) });
+    } catch (error) {
+      res.status(400).json({ ok: false, error: formatError(error) });
+    }
+  });
+
+  app.delete("/api/keys/:keyId", (req, res) => {
+    try {
+      deleteApiKey(state, req.params.keyId);
+      res.json({ ok: true, keys: getKeysView(state) });
+    } catch (error) {
+      res.status(400).json({ ok: false, error: formatError(error) });
+    }
+  });
+
+  app.get("/api/admin/export", (_req, res) => {
+    res.json({ ok: true, data: exportRuntimeState(state) });
+  });
+
+  app.post("/api/admin/import", (req, res) => {
+    try {
+      importRuntimeState(state, req.body?.data || req.body || {}, req.body?.mode || "replace");
+      res.json({
+        ok: true,
+        accounts: getAccountsView(state, config),
+        keys: getKeysView(state),
+      });
+    } catch (error) {
+      res.status(400).json({ ok: false, error: formatError(error) });
+    }
   });
 
   app.get("/api/examples", (_req, res) => {
@@ -176,7 +354,8 @@ export function createApp(config = createConfig()) {
 
   app.get("/v1/models", async (_req, res) => {
     try {
-      const botConfig = await getBotConfig(config);
+      const auth = pickUpstreamAccount(state, config);
+      const botConfig = await getBotConfig(config, auth);
       const data = normalizeModelsFromConfig(botConfig).map((item) => ({
         id: item.id,
         object: "model",
@@ -201,10 +380,12 @@ export function createApp(config = createConfig()) {
       }
 
       if (body.stream) {
-        return handleStreamingChatCompletion(res, body, config);
+        const auth = pickUpstreamAccount(state, config);
+        return handleStreamingChatCompletion(res, body, config, auth);
       }
 
-      const result = await runCompletionLoop(body, config);
+      const auth = pickUpstreamAccount(state, config);
+      const result = await runCompletionLoop(body, config, auth);
       res.json(toChatCompletionResponse(result, body.model || config.defaultModel));
     } catch (error) {
       sendOpenAIError(res, error, 500);
@@ -219,6 +400,7 @@ export function createApp(config = createConfig()) {
         return sendOpenAIError(res, new Error("input must not be empty"), 400, "invalid_request_error");
       }
 
+      const auth = pickUpstreamAccount(state, config);
       const result = await runCompletionLoop({
         model: body.model,
         messages,
@@ -229,7 +411,7 @@ export function createApp(config = createConfig()) {
         max_tokens: body.max_output_tokens,
         metadata: body.metadata,
         enable_thinking: body.reasoning?.effort ? true : undefined,
-      }, config);
+      }, config, auth);
 
       const output = result.message.tool_calls?.length
         ? result.message.tool_calls.map((call) => ({
@@ -259,7 +441,8 @@ export function createApp(config = createConfig()) {
 
   app.get("/api/tools/user-info", async (_req, res) => {
     try {
-      const data = await mimoRequest(config, "GET", "/open-apis/user/mi/get");
+      const auth = pickUpstreamAccount(state, config);
+      const data = await mimoRequest(config, auth, "GET", "/open-apis/user/mi/get");
       res.json({ ok: true, data });
     } catch (error) {
       res.status(500).json({ ok: false, error: formatError(error) });
@@ -268,7 +451,8 @@ export function createApp(config = createConfig()) {
 
   app.get("/api/tools/conversations", async (req, res) => {
     try {
-      const data = await mimoRequest(config, "POST", "/open-apis/chat/conversation/list", {
+      const auth = pickUpstreamAccount(state, config);
+      const data = await mimoRequest(config, auth, "POST", "/open-apis/chat/conversation/list", {
         queryParam: { search: String(req.query.search || "") || undefined },
         pageInfo: {
           pageNum: Number(req.query.pageNum || 1),
@@ -288,7 +472,8 @@ export function createApp(config = createConfig()) {
         return res.status(400).json({ ok: false, error: "conversationId is required" });
       }
 
-      const data = await mimoRequest(config, "POST", "/open-apis/chat/dialog/list", {
+      const auth = pickUpstreamAccount(state, config);
+      const data = await mimoRequest(config, auth, "POST", "/open-apis/chat/dialog/list", {
         queryParam: { conversationId, endId },
         pageInfo: { pageNum: Number(pageNum), pageSize: Number(pageSize) },
       });
@@ -300,7 +485,8 @@ export function createApp(config = createConfig()) {
 
   app.get("/api/tools/models", async (_req, res) => {
     try {
-      const botConfig = await getBotConfig(config);
+      const auth = pickUpstreamAccount(state, config);
+      const botConfig = await getBotConfig(config, auth);
       res.json({ ok: true, data: normalizeModelsFromConfig(botConfig) });
     } catch (error) {
       res.status(500).json({ ok: false, error: formatError(error) });
@@ -338,7 +524,8 @@ export function createApp(config = createConfig()) {
       }
 
       const md5 = crypto.createHash("md5").update(req.file.buffer).digest("hex");
-      const uploadInfo = await mimoRequest(config, "POST", "/open-apis/resource/genUploadInfo", {
+      const auth = pickUpstreamAccount(state, config);
+      const uploadInfo = await mimoRequest(config, auth, "POST", "/open-apis/resource/genUploadInfo", {
         fileName: req.file.originalname,
         fileContentMd5: md5,
       });
@@ -360,7 +547,7 @@ export function createApp(config = createConfig()) {
       const shouldParse = String(req.body.parse || "true").toLowerCase() !== "false";
       const model = String(req.body.model || config.defaultModel);
       if (shouldParse) {
-        parsed = await mimoRequest(config, "POST", "/open-apis/resource/parse", null, {
+        parsed = await mimoRequest(config, auth, "POST", "/open-apis/resource/parse", null, {
           fileUrl: uploadInfo.resourceUrl,
           objectName: uploadInfo.objectName,
           model,
@@ -414,7 +601,7 @@ export function startServer(config = createConfig()) {
   return { app, server, config };
 }
 
-async function handleStreamingChatCompletion(res, body, config) {
+async function handleStreamingChatCompletion(res, body, config, auth) {
   const model = body.model || config.defaultModel;
   const completionId = `chatcmpl_${randomId(24)}`;
   const created = Math.floor(Date.now() / 1000);
@@ -435,7 +622,7 @@ async function handleStreamingChatCompletion(res, body, config) {
     choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }],
   });
 
-  const result = await runCompletionLoop(body, config);
+  const result = await runCompletionLoop(body, config, auth);
 
   if (result.message.tool_calls?.length) {
     result.message.tool_calls.forEach((call, index) => {
@@ -485,7 +672,7 @@ async function handleStreamingChatCompletion(res, body, config) {
   res.end();
 }
 
-async function runCompletionLoop(body, config) {
+async function runCompletionLoop(body, config, auth) {
   const workingMessages = JSON.parse(JSON.stringify(body.messages || []));
   const providedTools = normalizeTools(body.tools || []);
   const baseTools = providedTools.length ? providedTools : getEnabledLocalTools(config);
@@ -497,7 +684,7 @@ async function runCompletionLoop(body, config) {
   for (let round = 0; round < maxRounds; round += 1) {
     const prompt = buildPromptFromMessages(workingMessages, tools);
     const latestUser = getLatestUserMessage(workingMessages);
-    const upstream = await requestMimoChat(config, {
+    const upstream = await requestMimoChat(config, auth, {
       model: body.model || config.defaultModel,
       temperature: body.temperature,
       topP: body.top_p,
@@ -537,7 +724,7 @@ async function runCompletionLoop(body, config) {
 
     workingMessages.push(assistantMessage);
     for (const call of parsed.toolCalls) {
-      const toolResult = await executeLocalToolCall(config, call);
+      const toolResult = await executeLocalToolCall(config, auth, call);
       workingMessages.push({
         role: "tool",
         tool_call_id: call.id,
@@ -556,7 +743,7 @@ async function runCompletionLoop(body, config) {
   };
 }
 
-async function executeLocalToolCall(config, call) {
+async function executeLocalToolCall(config, auth, call) {
   const name = call.function.name;
   let args = {};
   try {
@@ -566,19 +753,19 @@ async function executeLocalToolCall(config, call) {
   }
 
   if (name === "get_user_info") {
-    return await mimoRequest(config, "GET", "/open-apis/user/mi/get");
+    return await mimoRequest(config, auth, "GET", "/open-apis/user/mi/get");
   }
   if (name === "list_models") {
-    return normalizeModelsFromConfig(await getBotConfig(config));
+    return normalizeModelsFromConfig(await getBotConfig(config, auth));
   }
   if (name === "list_conversations") {
-    return await mimoRequest(config, "POST", "/open-apis/chat/conversation/list", {
+    return await mimoRequest(config, auth, "POST", "/open-apis/chat/conversation/list", {
       queryParam: { search: args.search || undefined },
       pageInfo: { pageNum: Number(args.pageNum || 1), pageSize: Number(args.pageSize || 20) },
     });
   }
   if (name === "list_dialogs") {
-    return await mimoRequest(config, "POST", "/open-apis/chat/dialog/list", {
+    return await mimoRequest(config, auth, "POST", "/open-apis/chat/dialog/list", {
       queryParam: { conversationId: args.conversationId, endId: args.endId },
       pageInfo: { pageNum: Number(args.pageNum || 1), pageSize: Number(args.pageSize || 10) },
     });
@@ -603,7 +790,7 @@ async function executeLocalToolCall(config, call) {
   throw new Error(`Unsupported local tool: ${name}`);
 }
 
-async function requestMimoChat(config, { model, temperature, topP, prompt, multiMedias, enableThinking, webSearchMode }) {
+async function requestMimoChat(config, auth, { model, temperature, topP, prompt, multiMedias, enableThinking, webSearchMode }) {
   const payload = {
     model,
     temperature: typeof temperature === "number" ? temperature : 0.8,
@@ -616,47 +803,59 @@ async function requestMimoChat(config, { model, temperature, topP, prompt, multi
     multiMedias: Array.isArray(multiMedias) ? multiMedias : [],
   };
 
-  const response = await rawMimoFetch(config, "POST", "/open-apis/bot/chat", { body: payload });
-  if (!response.ok) {
-    throw new Error(`Upstream chat request failed: HTTP ${response.status}`);
-  }
-
-  const text = await response.text();
-  const events = parseSSEText(text);
-  const finalEvent = [...events].reverse().find((item) => item && typeof item === "object" && "message" in item) || {};
-  return {
-    events,
-    finalText: String(finalEvent.message || ""),
-  };
-}
-
-async function getBotConfig(config) {
-  return await mimoRequest(config, "GET", "/open-apis/bot/config");
-}
-
-async function mimoRequest(config, method, endpoint, body, queryParams) {
-  const response = await rawMimoFetch(config, method, endpoint, { body, queryParams });
-  const text = await response.text();
-  let json;
   try {
-    json = text ? JSON.parse(text) : {};
-  } catch {
-    throw new Error(`Upstream returned non-JSON content: ${text.slice(0, 300)}`);
-  }
+    const response = await rawMimoFetch(config, auth, "POST", "/open-apis/bot/chat", { body: payload });
+    if (!response.ok) {
+      throw new Error(`Upstream chat request failed: HTTP ${response.status}`);
+    }
 
-  if (!response.ok) {
-    throw new Error(json?.msg || json?.message || `HTTP ${response.status}`);
+    const text = await response.text();
+    const events = parseSSEText(text);
+    const finalEvent = [...events].reverse().find((item) => item && typeof item === "object" && "message" in item) || {};
+    recordUpstreamSuccess(config, auth);
+    return {
+      events,
+      finalText: String(finalEvent.message || ""),
+    };
+  } catch (error) {
+    recordUpstreamFailure(config, auth, error);
+    throw error;
   }
-
-  const code = json?.code;
-  if (code !== undefined && code !== 0 && code !== 200) {
-    throw new Error(json?.msg || `Upstream business error: code=${code}`);
-  }
-
-  return json?.data ?? json;
 }
 
-async function rawMimoFetch(config, method, endpoint, { body, queryParams } = {}) {
+async function getBotConfig(config, auth) {
+  return await mimoRequest(config, auth, "GET", "/open-apis/bot/config");
+}
+
+async function mimoRequest(config, auth, method, endpoint, body, queryParams) {
+  try {
+    const response = await rawMimoFetch(config, auth, method, endpoint, { body, queryParams });
+    const text = await response.text();
+    let json;
+    try {
+      json = text ? JSON.parse(text) : {};
+    } catch {
+      throw new Error(`Upstream returned non-JSON content: ${text.slice(0, 300)}`);
+    }
+
+    if (!response.ok) {
+      throw new Error(json?.msg || json?.message || `HTTP ${response.status}`);
+    }
+
+    const code = json?.code;
+    if (code !== undefined && code !== 0 && code !== 200) {
+      throw new Error(json?.msg || `Upstream business error: code=${code}`);
+    }
+
+    recordUpstreamSuccess(config, auth);
+    return json?.data ?? json;
+  } catch (error) {
+    recordUpstreamFailure(config, auth, error);
+    throw error;
+  }
+}
+
+async function rawMimoFetch(config, auth, method, endpoint, { body, queryParams } = {}) {
   const url = new URL(`${config.mimoBaseUrl}${endpoint}`);
   const q = new URLSearchParams(url.search);
 
@@ -665,8 +864,8 @@ async function rawMimoFetch(config, method, endpoint, { body, queryParams } = {}
       if (value !== undefined && value !== null && value !== "") q.set(key, String(value));
     });
   }
-  if (method.toUpperCase() === "POST" && config.phValue && !q.has("xiaomichatbot_ph")) {
-    q.set("xiaomichatbot_ph", config.phValue);
+  if (method.toUpperCase() === "POST" && auth?.phValue && !q.has("xiaomichatbot_ph")) {
+    q.set("xiaomichatbot_ph", auth.phValue);
   }
   url.search = q.toString();
 
@@ -674,7 +873,7 @@ async function rawMimoFetch(config, method, endpoint, { body, queryParams } = {}
     "Accept-Language": config.acceptLanguage,
     "x-timeZone": config.timezone,
   };
-  if (config.cookie) headers.Cookie = config.cookie;
+  if (auth?.cookie) headers.Cookie = auth.cookie;
   if (body !== undefined && body !== null) headers["Content-Type"] = "application/json";
 
   return await fetch(url, {
@@ -951,20 +1150,26 @@ function cleanUndefined(value) {
   return value;
 }
 
-function extractCookieValue(cookieText, name) {
-  const parts = String(cookieText || "").split(/;\s*/);
-  for (const part of parts) {
-    const index = part.indexOf("=");
-    if (index === -1) continue;
-    const key = part.slice(0, index).trim();
-    const value = part.slice(index + 1).trim();
-    if (key === name) return value;
-  }
-  return "";
+function extractBearerToken(headerValue) {
+  const value = String(headerValue || "").trim();
+  const match = value.match(/^Bearer\s+(.+)$/i);
+  return match ? match[1].trim() : "";
 }
 
 function randomId(length = 16) {
   return crypto.randomBytes(Math.ceil(length / 2)).toString("hex").slice(0, length);
+}
+
+function recordUpstreamSuccess(config, auth) {
+  const state = config.runtimeState;
+  if (!state || !auth?.accountId) return;
+  recordAccountSuccess(state, auth.accountId);
+}
+
+function recordUpstreamFailure(config, auth, error) {
+  const state = config.runtimeState;
+  if (!state || !auth?.accountId) return;
+  recordAccountFailure(state, auth.accountId, formatError(error));
 }
 
 function formatError(error) {
