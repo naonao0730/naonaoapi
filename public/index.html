@@ -1,0 +1,887 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MiMo OpenAI Bridge</title>
+    <style>
+      :root {
+        --bg: #f3efe6;
+        --panel: rgba(255, 252, 246, 0.76);
+        --panel-strong: rgba(255, 249, 239, 0.92);
+        --ink: #14213d;
+        --muted: #5f6b7a;
+        --line: rgba(20, 33, 61, 0.12);
+        --accent: #ed6a3a;
+        --accent-2: #0f8b8d;
+        --shadow: 0 24px 60px rgba(20, 33, 61, 0.12);
+        --radius: 24px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        color: var(--ink);
+        font-family: "Space Grotesk", "Segoe UI", sans-serif;
+        background:
+          radial-gradient(circle at top left, rgba(237, 106, 58, 0.24), transparent 28%),
+          radial-gradient(circle at top right, rgba(15, 139, 141, 0.24), transparent 24%),
+          linear-gradient(135deg, #f7f2e8 0%, #efe6d7 48%, #f8f4ed 100%);
+      }
+
+      body::before,
+      body::after {
+        content: "";
+        position: fixed;
+        inset: auto;
+        width: 30rem;
+        height: 30rem;
+        border-radius: 50%;
+        filter: blur(40px);
+        pointer-events: none;
+        opacity: 0.5;
+      }
+
+      body::before {
+        top: -8rem;
+        left: -8rem;
+        background: rgba(237, 106, 58, 0.12);
+      }
+
+      body::after {
+        right: -10rem;
+        bottom: -10rem;
+        background: rgba(15, 139, 141, 0.12);
+      }
+
+      .shell {
+        width: min(1180px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 28px 0 40px;
+      }
+
+      .hero,
+      .panel {
+        position: relative;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--panel);
+        backdrop-filter: blur(14px);
+        box-shadow: var(--shadow);
+      }
+
+      .hero {
+        padding: 28px;
+        display: grid;
+        gap: 18px;
+      }
+
+      .hero::after,
+      .panel::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(120deg, rgba(255,255,255,0.24), transparent 42%);
+        pointer-events: none;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        width: fit-content;
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: rgba(20, 33, 61, 0.07);
+        color: var(--muted);
+        font-size: 12px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--accent-2);
+        box-shadow: 0 0 0 6px rgba(15, 139, 141, 0.14);
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        max-width: 12ch;
+        font-size: clamp(2.2rem, 6vw, 4.8rem);
+        line-height: 0.95;
+        letter-spacing: -0.05em;
+      }
+
+      .hero-copy {
+        max-width: 62ch;
+        color: var(--muted);
+        line-height: 1.7;
+      }
+
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .stat {
+        padding: 18px;
+        border-radius: 20px;
+        background: var(--panel-strong);
+        border: 1px solid rgba(20, 33, 61, 0.08);
+      }
+
+      .stat-label {
+        color: var(--muted);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+      }
+
+      .stat-value {
+        margin-top: 10px;
+        font-size: 1.4rem;
+        font-weight: 700;
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: 1.08fr 0.92fr;
+        gap: 18px;
+        margin-top: 18px;
+      }
+
+      .stack {
+        display: grid;
+        gap: 18px;
+      }
+
+      .panel {
+        padding: 22px;
+      }
+
+      .panel-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 18px;
+      }
+
+      .panel-title {
+        font-size: 1.05rem;
+        letter-spacing: -0.02em;
+      }
+
+      .panel-subtitle {
+        color: var(--muted);
+        font-size: 0.95rem;
+      }
+
+      .actions,
+      .inline-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      button,
+      select,
+      textarea,
+      input[type="text"],
+      input[type="file"] {
+        font: inherit;
+      }
+
+      button {
+        border: 0;
+        border-radius: 999px;
+        padding: 11px 16px;
+        background: var(--ink);
+        color: white;
+        cursor: pointer;
+        transition: transform 120ms ease, opacity 120ms ease, background 120ms ease;
+      }
+
+      button:hover {
+        transform: translateY(-1px);
+      }
+
+      button.secondary {
+        background: rgba(20, 33, 61, 0.08);
+        color: var(--ink);
+      }
+
+      button.accent {
+        background: linear-gradient(135deg, var(--accent), #f4a259);
+      }
+
+      button:disabled {
+        opacity: 0.55;
+        cursor: wait;
+        transform: none;
+      }
+
+      .field-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+
+      .field {
+        display: grid;
+        gap: 8px;
+      }
+
+      .field label {
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+
+      select,
+      textarea,
+      input[type="text"],
+      input[type="file"] {
+        width: 100%;
+        border: 1px solid rgba(20, 33, 61, 0.12);
+        border-radius: 18px;
+        padding: 14px 16px;
+        background: rgba(255, 255, 255, 0.78);
+        color: var(--ink);
+        outline: none;
+      }
+
+      textarea {
+        min-height: 132px;
+        resize: vertical;
+        line-height: 1.6;
+      }
+
+      .checkline {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--muted);
+        margin: 12px 0 16px;
+      }
+
+      .checkline input {
+        accent-color: var(--accent-2);
+      }
+
+      pre {
+        margin: 0;
+        padding: 18px;
+        border-radius: 20px;
+        background: #101724;
+        color: #e5f0ff;
+        overflow: auto;
+        min-height: 160px;
+        line-height: 1.55;
+        font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+        font-size: 0.9rem;
+      }
+
+      .console-meta {
+        margin-bottom: 10px;
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+
+      .status {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: rgba(15, 139, 141, 0.12);
+        color: #0d696a;
+        font-size: 0.9rem;
+      }
+
+      .status.bad {
+        background: rgba(237, 106, 58, 0.16);
+        color: #b94a22;
+      }
+
+      .empty {
+        color: var(--muted);
+      }
+
+      @media (max-width: 980px) {
+        .stats,
+        .layout,
+        .field-grid {
+          grid-template-columns: 1fr;
+        }
+
+        h1 {
+          max-width: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <div class="eyebrow"><span class="dot"></span>Bridge Console</div>
+        <h1>MiMo to OpenAI, with a real control surface.</h1>
+        <p class="hero-copy">
+          Inspect the bridge, test chat completions, upload files, and verify runtime config from one page.
+          This dashboard is static, so it works without any frontend build step.
+        </p>
+        <div class="stats">
+          <article class="stat">
+            <div class="stat-label">Service</div>
+            <div class="stat-value" id="statService">Checking...</div>
+          </article>
+          <article class="stat">
+            <div class="stat-label">Default Model</div>
+            <div class="stat-value" id="statModel">-</div>
+          </article>
+          <article class="stat">
+            <div class="stat-label">Available Models</div>
+            <div class="stat-value" id="statModels">-</div>
+          </article>
+          <article class="stat">
+            <div class="stat-label">Local Tools</div>
+            <div class="stat-value" id="statTools">-</div>
+          </article>
+        </div>
+      </section>
+
+      <section class="layout">
+        <div class="stack">
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <h2 class="panel-title">Runtime Inspector</h2>
+                <p class="panel-subtitle">Quick-read the bridge endpoints without leaving the page.</p>
+              </div>
+              <div class="status" id="runtimeStatus">Waiting for bootstrap...</div>
+            </div>
+            <div class="actions">
+              <button class="secondary" data-endpoint="/health">Health</button>
+              <button class="secondary" data-endpoint="/api/config">Config</button>
+              <button class="secondary" data-endpoint="/v1/models">Models</button>
+              <button class="secondary" data-endpoint="/api/examples">Examples</button>
+              <button class="secondary" data-endpoint="/api/tools/user-info">User Info</button>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <h2 class="panel-title">Conversation Explorer</h2>
+                <p class="panel-subtitle">Inspect conversation lists and drill into dialog history from the built-in tool endpoints.</p>
+              </div>
+            </div>
+            <div class="field-grid">
+              <div class="field">
+                <label for="conversationSearch">Search</label>
+                <input id="conversationSearch" type="text" placeholder="Optional keyword" />
+              </div>
+              <div class="field">
+                <label for="conversationPicker">Conversation</label>
+                <select id="conversationPicker">
+                  <option value="">Load conversations first</option>
+                </select>
+              </div>
+            </div>
+            <div class="field">
+              <label for="conversationId">Conversation ID</label>
+              <input id="conversationId" type="text" placeholder="Pick from the list or paste an ID" />
+            </div>
+            <div class="inline-actions">
+              <button class="secondary" id="loadConversations">Load Conversations</button>
+              <button class="accent" id="loadDialogs">Load Dialogs</button>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <h2 class="panel-title">Chat Playground</h2>
+                <p class="panel-subtitle">Send a minimal OpenAI-compatible request to your bridge.</p>
+              </div>
+            </div>
+            <div class="field-grid">
+              <div class="field">
+                <label for="chatModel">Model</label>
+                <select id="chatModel"></select>
+              </div>
+              <div class="field">
+                <label for="chatTemperature">Temperature</label>
+                <input id="chatTemperature" type="text" value="0.8" />
+              </div>
+            </div>
+            <div class="field">
+              <label for="chatPrompt">Prompt</label>
+              <textarea id="chatPrompt">Introduce this bridge in one short paragraph and mention one practical use case.</textarea>
+            </div>
+            <label class="checkline">
+              <input id="autoExecute" type="checkbox" />
+              <span>Auto-execute local tools when the assistant requests them.</span>
+            </label>
+            <div class="inline-actions">
+              <button class="accent" id="runChat">Run Chat Completion</button>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <h2 class="panel-title">Examples</h2>
+                <p class="panel-subtitle">Pulled from the server so the snippets always reflect the current port and model.</p>
+              </div>
+              <button class="secondary" id="refreshExamples">Refresh</button>
+            </div>
+            <pre id="examplesConsole">Loading examples...</pre>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <h2 class="panel-title">Responses Lab</h2>
+                <p class="panel-subtitle">Exercise the `/v1/responses` route with a small payload and optional local-tool auto execution.</p>
+              </div>
+            </div>
+            <div class="field-grid">
+              <div class="field">
+                <label for="responsesModel">Model</label>
+                <select id="responsesModel"></select>
+              </div>
+              <div class="field">
+                <label for="responsesReasoning">Reasoning</label>
+                <select id="responsesReasoning">
+                  <option value="">Default</option>
+                  <option value="low">low</option>
+                  <option value="medium">medium</option>
+                  <option value="high">high</option>
+                </select>
+              </div>
+            </div>
+            <div class="field">
+              <label for="responsesPrompt">Input</label>
+              <textarea id="responsesPrompt">Summarize what this bridge does in two bullet points.</textarea>
+            </div>
+            <label class="checkline">
+              <input id="responsesAutoExecute" type="checkbox" />
+              <span>Auto-execute local tools for the Responses API too.</span>
+            </label>
+            <div class="inline-actions">
+              <button class="accent" id="runResponses">Run Responses API</button>
+            </div>
+          </article>
+        </div>
+
+        <div class="stack">
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <h2 class="panel-title">File Upload</h2>
+                <p class="panel-subtitle">Push a file through the MiMo upload endpoint and optionally trigger parsing.</p>
+              </div>
+            </div>
+            <div class="field-grid">
+              <div class="field">
+                <label for="uploadModel">Parse Model</label>
+                <select id="uploadModel"></select>
+              </div>
+              <div class="field">
+                <label for="uploadFile">File</label>
+                <input id="uploadFile" type="file" />
+              </div>
+            </div>
+            <label class="checkline">
+              <input id="parseFile" type="checkbox" checked />
+              <span>Ask MiMo to parse the uploaded file.</span>
+            </label>
+            <div class="inline-actions">
+              <button class="accent" id="runUpload">Upload File</button>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <h2 class="panel-title">Response Console</h2>
+                <p class="panel-subtitle">The latest payload from any action on this page.</p>
+              </div>
+            </div>
+            <div class="console-meta" id="consoleMeta">No requests yet.</div>
+            <pre id="consoleOutput" class="empty">Run a check, send a chat request, or upload a file.</pre>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const state = {
+        config: null,
+        examples: null,
+      };
+
+      const refs = {
+        statService: document.getElementById("statService"),
+        statModel: document.getElementById("statModel"),
+        statModels: document.getElementById("statModels"),
+        statTools: document.getElementById("statTools"),
+        runtimeStatus: document.getElementById("runtimeStatus"),
+        chatModel: document.getElementById("chatModel"),
+        responsesModel: document.getElementById("responsesModel"),
+        uploadModel: document.getElementById("uploadModel"),
+        chatTemperature: document.getElementById("chatTemperature"),
+        chatPrompt: document.getElementById("chatPrompt"),
+        responsesReasoning: document.getElementById("responsesReasoning"),
+        responsesPrompt: document.getElementById("responsesPrompt"),
+        responsesAutoExecute: document.getElementById("responsesAutoExecute"),
+        autoExecute: document.getElementById("autoExecute"),
+        conversationSearch: document.getElementById("conversationSearch"),
+        conversationPicker: document.getElementById("conversationPicker"),
+        conversationId: document.getElementById("conversationId"),
+        loadConversations: document.getElementById("loadConversations"),
+        loadDialogs: document.getElementById("loadDialogs"),
+        uploadFile: document.getElementById("uploadFile"),
+        parseFile: document.getElementById("parseFile"),
+        runChat: document.getElementById("runChat"),
+        runResponses: document.getElementById("runResponses"),
+        runUpload: document.getElementById("runUpload"),
+        refreshExamples: document.getElementById("refreshExamples"),
+        examplesConsole: document.getElementById("examplesConsole"),
+        consoleMeta: document.getElementById("consoleMeta"),
+        consoleOutput: document.getElementById("consoleOutput"),
+      };
+
+      function pretty(value) {
+        return typeof value === "string" ? value : JSON.stringify(value, null, 2);
+      }
+
+      function setConsole(label, payload, isError = false) {
+        refs.consoleMeta.textContent = label;
+        refs.consoleOutput.textContent = pretty(payload);
+        refs.consoleOutput.classList.toggle("empty", false);
+        refs.runtimeStatus.textContent = isError ? "Request failed" : "Ready";
+        refs.runtimeStatus.classList.toggle("bad", isError);
+      }
+
+      function setLoading(message) {
+        refs.runtimeStatus.textContent = message;
+        refs.runtimeStatus.classList.remove("bad");
+      }
+
+      function collectConversationCandidates(payload) {
+        const found = new Map();
+
+        function visit(value) {
+          if (Array.isArray(value)) {
+            value.forEach(visit);
+            return;
+          }
+
+          if (!value || typeof value !== "object") return;
+
+          const directId = typeof value.conversationId === "string" ? value.conversationId : "";
+          const fallbackId = typeof value.id === "string" && value.id.length > 8 ? value.id : "";
+          const id = directId || fallbackId;
+
+          if (id && !found.has(id)) {
+            const title = value.title || value.name || value.topic || value.summary || id;
+            found.set(id, { id, title: String(title) });
+          }
+
+          Object.values(value).forEach(visit);
+        }
+
+        visit(payload);
+        return [...found.values()].slice(0, 50);
+      }
+
+      function renderConversationOptions(items) {
+        refs.conversationPicker.innerHTML = "";
+
+        if (!items.length) {
+          const option = document.createElement("option");
+          option.value = "";
+          option.textContent = "No conversation IDs detected";
+          refs.conversationPicker.appendChild(option);
+          return;
+        }
+
+        items.forEach((item, index) => {
+          const option = document.createElement("option");
+          option.value = item.id;
+          option.textContent = item.title === item.id ? item.id : `${item.title} - ${item.id}`;
+          if (index === 0) option.selected = true;
+          refs.conversationPicker.appendChild(option);
+        });
+
+        refs.conversationId.value = items[0].id;
+      }
+
+      function fillModelSelect(select, models, fallback) {
+        select.innerHTML = "";
+        if (!models.length) {
+          const option = document.createElement("option");
+          option.value = fallback || "";
+          option.textContent = fallback || "No models available";
+          select.appendChild(option);
+          return;
+        }
+
+        models.forEach((model) => {
+          const option = document.createElement("option");
+          option.value = model.id;
+          option.textContent = model.default ? `${model.id} (default)` : model.id;
+          if (model.id === fallback) option.selected = true;
+          select.appendChild(option);
+        });
+      }
+
+      async function requestJson(url, options) {
+        const response = await fetch(url, options);
+        const text = await response.text();
+        let payload = {};
+
+        try {
+          payload = text ? JSON.parse(text) : {};
+        } catch {
+          payload = { raw: text };
+        }
+
+        if (!response.ok) {
+          throw new Error(payload?.error?.message || payload?.error || payload?.message || response.statusText);
+        }
+
+        return payload;
+      }
+
+      async function bootstrap() {
+        try {
+          setLoading("Bootstrapping...");
+          const [health, config, examples] = await Promise.all([
+            requestJson("/health"),
+            requestJson("/api/config"),
+            requestJson("/api/examples"),
+          ]);
+
+          state.config = config.config;
+          state.examples = examples.data;
+
+          refs.statService.textContent = health.ok ? "Online" : "Issue";
+          refs.statModel.textContent = config.config.defaultModel || "-";
+          refs.statModels.textContent = String(config.config.models.length);
+          refs.statTools.textContent = String(config.config.localTools.length);
+          refs.runtimeStatus.textContent = "Bridge online";
+          refs.runtimeStatus.classList.remove("bad");
+
+          fillModelSelect(refs.chatModel, config.config.models, config.config.defaultModel);
+          fillModelSelect(refs.responsesModel, config.config.models, config.config.defaultModel);
+          fillModelSelect(refs.uploadModel, config.config.models, config.config.defaultModel);
+          refs.examplesConsole.textContent = pretty(examples.data);
+
+          setConsole("Bootstrap snapshot", { health, config, examples }, false);
+        } catch (error) {
+          refs.statService.textContent = "Offline";
+          refs.runtimeStatus.textContent = "Bootstrap failed";
+          refs.runtimeStatus.classList.add("bad");
+          setConsole("Bootstrap failed", { error: error.message }, true);
+        }
+      }
+
+      async function inspectEndpoint(endpoint) {
+        try {
+          setLoading(`Fetching ${endpoint}...`);
+          const payload = await requestJson(endpoint);
+          setConsole(`Response from ${endpoint}`, payload, false);
+        } catch (error) {
+          setConsole(`Failed request: ${endpoint}`, { error: error.message }, true);
+        }
+      }
+
+      async function loadConversations() {
+        refs.loadConversations.disabled = true;
+        try {
+          const search = refs.conversationSearch.value.trim();
+          const params = new URLSearchParams();
+          if (search) params.set("search", search);
+
+          setLoading("Loading conversations...");
+          const endpoint = `/api/tools/conversations${params.toString() ? `?${params.toString()}` : ""}`;
+          const payload = await requestJson(endpoint);
+          const candidates = collectConversationCandidates(payload);
+          renderConversationOptions(candidates);
+          setConsole("Conversation list", payload, false);
+        } catch (error) {
+          setConsole("Conversation list failed", { error: error.message }, true);
+        } finally {
+          refs.loadConversations.disabled = false;
+        }
+      }
+
+      async function loadDialogs() {
+        const conversationId = refs.conversationId.value.trim() || refs.conversationPicker.value;
+        if (!conversationId) {
+          setConsole("Dialog validation", { error: "Provide a conversation ID first." }, true);
+          return;
+        }
+
+        refs.loadDialogs.disabled = true;
+        try {
+          setLoading("Loading dialogs...");
+          const payload = await requestJson("/api/tools/dialogs", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ conversationId }),
+          });
+          setConsole(`Dialogs for ${conversationId}`, payload, false);
+        } catch (error) {
+          setConsole("Dialog fetch failed", { error: error.message, conversationId }, true);
+        } finally {
+          refs.loadDialogs.disabled = false;
+        }
+      }
+
+      async function runChat() {
+        const model = refs.chatModel.value;
+        const prompt = refs.chatPrompt.value.trim();
+        const temperature = Number(refs.chatTemperature.value);
+
+        if (!prompt) {
+          setConsole("Chat validation", { error: "Prompt must not be empty." }, true);
+          return;
+        }
+
+        refs.runChat.disabled = true;
+        try {
+          setLoading("Running chat completion...");
+          const payload = await requestJson("/v1/chat/completions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model,
+              temperature: Number.isFinite(temperature) ? temperature : 0.8,
+              messages: [{ role: "user", content: prompt }],
+              metadata: {
+                auto_execute_local_tools: refs.autoExecute.checked,
+              },
+            }),
+          });
+          setConsole("Chat completion result", payload, false);
+        } catch (error) {
+          setConsole("Chat completion failed", { error: error.message }, true);
+        } finally {
+          refs.runChat.disabled = false;
+        }
+      }
+
+      async function runResponses() {
+        const model = refs.responsesModel.value;
+        const input = refs.responsesPrompt.value.trim();
+        const reasoning = refs.responsesReasoning.value;
+
+        if (!input) {
+          setConsole("Responses validation", { error: "Input must not be empty." }, true);
+          return;
+        }
+
+        refs.runResponses.disabled = true;
+        try {
+          setLoading("Running Responses API...");
+          const payload = {
+            model,
+            input,
+            metadata: {
+              auto_execute_local_tools: refs.responsesAutoExecute.checked,
+            },
+          };
+
+          if (reasoning) {
+            payload.reasoning = { effort: reasoning };
+          }
+
+          const result = await requestJson("/v1/responses", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          setConsole("Responses API result", result, false);
+        } catch (error) {
+          setConsole("Responses API failed", { error: error.message }, true);
+        } finally {
+          refs.runResponses.disabled = false;
+        }
+      }
+
+      async function uploadFile() {
+        const file = refs.uploadFile.files[0];
+        if (!file) {
+          setConsole("Upload validation", { error: "Choose a file first." }, true);
+          return;
+        }
+
+        refs.runUpload.disabled = true;
+        try {
+          setLoading("Uploading file...");
+          const form = new FormData();
+          form.append("file", file);
+          form.append("parse", String(refs.parseFile.checked));
+          form.append("model", refs.uploadModel.value);
+
+          const payload = await requestJson("/api/files/upload", {
+            method: "POST",
+            body: form,
+          });
+          setConsole(`Upload result for ${file.name}`, payload, false);
+        } catch (error) {
+          setConsole("Upload failed", { error: error.message }, true);
+        } finally {
+          refs.runUpload.disabled = false;
+        }
+      }
+
+      async function refreshExamples() {
+        try {
+          setLoading("Refreshing examples...");
+          const payload = await requestJson("/api/examples");
+          state.examples = payload.data;
+          refs.examplesConsole.textContent = pretty(payload.data);
+          setConsole("Examples refreshed", payload, false);
+        } catch (error) {
+          setConsole("Example refresh failed", { error: error.message }, true);
+        }
+      }
+
+      document.querySelectorAll("[data-endpoint]").forEach((button) => {
+        button.addEventListener("click", () => inspectEndpoint(button.dataset.endpoint));
+      });
+
+      refs.runChat.addEventListener("click", runChat);
+      refs.runResponses.addEventListener("click", runResponses);
+      refs.runUpload.addEventListener("click", uploadFile);
+      refs.refreshExamples.addEventListener("click", refreshExamples);
+      refs.loadConversations.addEventListener("click", loadConversations);
+      refs.loadDialogs.addEventListener("click", loadDialogs);
+      refs.conversationPicker.addEventListener("change", () => {
+        refs.conversationId.value = refs.conversationPicker.value;
+      });
+
+      bootstrap();
+    </script>
+  </body>
+</html>
