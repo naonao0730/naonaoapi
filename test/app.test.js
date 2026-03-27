@@ -157,3 +157,29 @@ test("enabled bridge keys protect /v1 routes", async () => {
   });
   assert.equal(authenticated.status, 400);
 });
+
+test("app falls back to memory mode when state files are not writable", async () => {
+  const config = createConfig({
+    PORT: "0",
+    MIMO_BASE_URL: "https://example.invalid",
+    ACCOUNT_STORE_FILE: "?:\\invalid\\accounts.json",
+    KEY_STORE_FILE: "?:\\invalid\\keys.json",
+  });
+
+  const app = createApp(config);
+  const tempServer = await new Promise((resolve) => {
+    const instance = app.listen(0, () => resolve(instance));
+  });
+
+  try {
+    const address = tempServer.address();
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/config`);
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.config.persistence.mode, "memory");
+  } finally {
+    await new Promise((resolve, reject) => {
+      tempServer.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+});

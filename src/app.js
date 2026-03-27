@@ -207,6 +207,7 @@ export function createApp(config = createConfig()) {
           upstreamError,
           accountPool: getAccountsView(state, config),
           keyPool: getKeysView(state),
+          persistence: state.persistence,
         },
       });
     } catch (error) {
@@ -597,6 +598,9 @@ export function startServer(config = createConfig()) {
   const app = createApp(config);
   const server = app.listen(config.port, () => {
     console.log(`MiMo OpenAI Bridge running at http://localhost:${config.port}`);
+    if (config.runtimeState?.persistence?.mode === "memory") {
+      console.warn(`State persistence fallback: memory mode (${config.runtimeState.persistence.lastError})`);
+    }
   });
   return { app, server, config };
 }

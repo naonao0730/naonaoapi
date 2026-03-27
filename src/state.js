@@ -18,10 +18,20 @@ export function createRuntimeState(config) {
     keysPath: config.keyStoreFile,
     accountsStore: normalizeAccountsStore(accountsStore, config),
     keysStore: normalizeKeysStore(keysStore),
+    persistence: {
+      mode: "file",
+      lastError: "",
+    },
   };
 
-  saveAccountsStore(state);
-  saveKeysStore(state);
+  try {
+    saveAccountsStore(state);
+    saveKeysStore(state);
+  } catch (error) {
+    state.persistence.mode = "memory";
+    state.persistence.lastError = error instanceof Error ? error.message : String(error);
+  }
+
   return state;
 }
 
@@ -464,11 +474,24 @@ function normalizeKeysStore(value) {
 }
 
 function saveAccountsStore(state) {
-  saveJson(state.accountsPath, state.accountsStore);
+  saveStoreSafely(state, state.accountsPath, state.accountsStore);
 }
 
 function saveKeysStore(state) {
-  saveJson(state.keysPath, state.keysStore);
+  saveStoreSafely(state, state.keysPath, state.keysStore);
+}
+
+function saveStoreSafely(state, filePath, value) {
+  if (state.persistence?.mode === "memory") {
+    return;
+  }
+
+  try {
+    saveJson(filePath, value);
+  } catch (error) {
+    state.persistence.mode = "memory";
+    state.persistence.lastError = error instanceof Error ? error.message : String(error);
+  }
 }
 
 function saveJson(filePath, value) {
