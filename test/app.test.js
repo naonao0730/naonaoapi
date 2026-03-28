@@ -9,6 +9,8 @@ import {
   normalizeIncomingChatMessages,
   normalizeModelsFromConfig,
   parseSSEText,
+  normalizeTools,
+  responsesInputToMessages,
   resolveUpstreamModelId,
   summarizeMimoSSE,
 } from "../src/app.js";
@@ -89,6 +91,63 @@ test("normalizeIncomingChatMessages accepts chat fallback fields", () => {
   assert.deepEqual(normalizeIncomingChatMessages({ prompt: "hi" }), [{ role: "user", content: "hi" }]);
   assert.deepEqual(normalizeIncomingChatMessages({ query: "hey" }), [{ role: "user", content: "hey" }]);
   assert.deepEqual(normalizeIncomingChatMessages({ messages: [{ role: "user", content: "ok" }] }), [{ role: "user", content: "ok" }]);
+});
+
+test("normalizeTools accepts nested, flat, and Cursor-style custom tools", () => {
+  const tools = normalizeTools([
+    {
+      type: "function",
+      function: {
+        name: "nested_tool",
+        description: "nested",
+        parameters: { type: "object", properties: {} },
+      },
+    },
+    {
+      type: "function",
+      name: "flat_tool",
+      description: "flat",
+      parameters: { type: "object", properties: { q: { type: "string" } } },
+    },
+    {
+      type: "custom",
+      name: "cursor_tool",
+      description: "cursor",
+      input_schema: { type: "object", properties: { path: { type: "string" } } },
+    },
+  ]);
+
+  assert.deepEqual(tools.map((item) => item.function.name), ["nested_tool", "flat_tool", "cursor_tool"]);
+  assert.equal(tools[2].function.parameters.properties.path.type, "string");
+});
+
+test("responsesInputToMessages preserves function call history and tool outputs", () => {
+  const messages = responsesInputToMessages([
+    {
+      type: "function_call",
+      call_id: "call_1",
+      name: "list_files",
+      arguments: { path: "." },
+    },
+    {
+      type: "function_call_output",
+      call_id: "call_1",
+      name: "list_files",
+      output: { files: ["a.txt"] },
+    },
+    {
+      type: "message",
+      role: "user",
+      content: [{ type: "input_text", text: "继续" }],
+    },
+  ]);
+
+  assert.equal(messages[0].role, "assistant");
+  assert.equal(messages[0].tool_calls[0].function.name, "list_files");
+  assert.equal(messages[1].role, "tool");
+  assert.equal(messages[1].tool_call_id, "call_1");
+  assert.match(messages[1].content, /a\.txt/);
+  assert.equal(messages[2].role, "user");
 });
 
 test("createConfig normalizes quoted ph cookies and browser-like upstream defaults", () => {

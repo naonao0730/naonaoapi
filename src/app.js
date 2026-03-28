@@ -455,46 +455,31 @@ export function createApp(config = createConfig()) {
 
   const handleResponsesRequest = async (req, res) => {
     try {
-      const body = req.body || {};
-      const messages = responsesInputToMessages(body.input);
+      const body = req.body && typeof req.body === "object" ? req.body : {};
+      const messages = responsesInputToMessages(body.input ?? body.messages ?? body.prompt ?? body.query);
       if (!messages.length) {
         return sendOpenAIError(res, new Error("input must not be empty"), 400, "invalid_request_error");
       }
 
+      const requestBody = { ...body, messages };
       const auth = pickUpstreamAccount(state, config);
+      if (requestBody.stream) {
+        return handleStreamingResponses(res, requestBody, config, auth);
+      }
+
       const result = await runCompletionLoop({
-        model: body.model,
+        model: requestBody.model,
         messages,
-        tools: body.tools,
-        tool_choice: body.tool_choice,
-        temperature: body.temperature,
-        top_p: body.top_p,
-        max_tokens: body.max_output_tokens,
-        metadata: body.metadata,
-        enable_thinking: body.reasoning?.effort ? true : undefined,
+        tools: requestBody.tools,
+        tool_choice: requestBody.tool_choice,
+        temperature: requestBody.temperature,
+        top_p: requestBody.top_p,
+        max_tokens: requestBody.max_output_tokens,
+        metadata: requestBody.metadata,
+        enable_thinking: requestBody.reasoning?.effort ? true : undefined,
       }, config, auth);
 
-      const output = result.message.tool_calls?.length
-        ? result.message.tool_calls.map((call) => ({
-            id: call.id,
-            type: "function_call",
-            status: "completed",
-            call_id: call.id,
-            name: call.function.name,
-            arguments: call.function.arguments,
-          }))
-        : [{ type: "message", role: "assistant", content: [{ type: "output_text", text: result.message.content || "" }] }];
-
-      res.json({
-        id: `resp_${randomId(24)}`,
-        object: "response",
-        created_at: Math.floor(Date.now() / 1000),
-        status: "completed",
-        model: body.model || config.defaultModel,
-        output,
-        usage: result.usage,
-        metadata: body.metadata || {},
-      });
+      res.json(toResponsesApiResponse(result, requestBody, config));
     } catch (error) {
       sendOpenAIError(res, error, 500);
     }
@@ -746,6 +731,98 @@ async function handleStreamingChatCompletion(res, body, config, auth) {
   res.end();
 }
 
+async function handleStreamingResponses(res, body, config, auth) {
+  const createdAt = Math.floor(Date.now() / 1000);
+  const result = await runCompletionLoop({
+    model: body.model,
+    messages: body.messages,
+    tools: body.tools,
+    tool_choice: body.tool_choice,
+    temperature: body.temperature,
+    top_p: body.top_p,
+    max_tokens: body.max_output_tokens,
+    metadata: body.metadata,
+    enable_thinking: body.reasoning?.effort ? true : undefined,
+  }, config, auth);
+  const responsePayload = toResponsesApiResponse(result, body, config);
+
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+
+  const sendEvent = (type, data) => {
+    res.write(`event: ${type}\n`);
+    res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`);
+  };
+
+  sendEvent("response.created", responsePayload);
+  sendEvent("response.in_progress", {
+    response: {
+      id: responsePayload.id,
+      object: "response",
+      created_at: createdAt,
+      status: "in_progress",
+      model: responsePayload.model,
+    },
+  });
+
+  responsePayload.output.forEach((item, index) => {
+    sendEvent("response.output_item.added", {
+      output_index: index,
+      item,
+    });
+
+    if (item.type === "message") {
+      const textItem = item.content?.[0] || { type: "output_text", text: "" };
+      sendEvent("response.content_part.added", {
+        output_index: index,
+        content_index: 0,
+        part: textItem,
+      });
+      for (const chunk of splitForStreaming(textItem.text || "")) {
+        sendEvent("response.output_text.delta", {
+          output_index: index,
+          content_index: 0,
+          delta: chunk,
+        });
+      }
+      sendEvent("response.output_text.done", {
+        output_index: index,
+        content_index: 0,
+        text: textItem.text || "",
+      });
+      sendEvent("response.content_part.done", {
+        output_index: index,
+        content_index: 0,
+        part: textItem,
+      });
+    }
+
+    if (item.type === "function_call") {
+      for (const chunk of splitForStreaming(item.arguments || "")) {
+        sendEvent("response.function_call_arguments.delta", {
+          output_index: index,
+          item_id: item.id,
+          delta: chunk,
+        });
+      }
+      sendEvent("response.function_call_arguments.done", {
+        output_index: index,
+        item_id: item.id,
+        arguments: item.arguments || "",
+      });
+    }
+
+    sendEvent("response.output_item.done", {
+      output_index: index,
+      item,
+    });
+  });
+
+  sendEvent("response.completed", responsePayload);
+  res.end();
+}
+
 async function runCompletionLoop(body, config, auth) {
   const workingMessages = JSON.parse(JSON.stringify(body.messages || []));
   const providedTools = normalizeTools(body.tools || []);
@@ -980,7 +1057,7 @@ function applyToolChoice(tools, toolChoice) {
   if (toolChoice === "none") return [];
   if (!toolChoice || toolChoice === "auto" || toolChoice === "required") return tools;
 
-  const toolName = toolChoice?.function?.name;
+  const toolName = toolChoice?.function?.name || toolChoice?.name;
   if (!toolName) return tools;
   return tools.filter((tool) => tool.function?.name === toolName);
 }
@@ -1122,32 +1199,32 @@ function parseAssistantOutput(text, tools) {
   return { content, toolCalls };
 }
 
-function normalizeTools(tools) {
+export function normalizeTools(tools) {
   if (!Array.isArray(tools)) return [];
   return tools
-    .filter((item) => item && item.type === "function" && item.function?.name)
+    .filter((item) => item && (item.type === "function" || item.type === "custom" || !item.type))
     .map((item) => ({
       type: "function",
       function: {
-        name: item.function.name,
-        description: item.function.description || "",
-        parameters: item.function.parameters || { type: "object", properties: {} },
+        name: item.function?.name || item.name,
+        description: item.function?.description || item.description || "",
+        parameters: item.function?.parameters || item.parameters || item.input_schema || { type: "object", properties: {} },
       },
-    }));
+    }))
+    .filter((item) => item.function.name);
 }
 
-function responsesInputToMessages(input) {
+export function responsesInputToMessages(input) {
   if (typeof input === "string") {
     return input.trim() ? [{ role: "user", content: input }] : [];
   }
   if (Array.isArray(input)) {
     return input
-      .map((item) => ({ role: item.role || "user", content: item.content || item.text || "" }))
-      .filter((item) => normalizeMessageContent(item.content).trim());
+      .flatMap((item) => responsesInputItemToMessages(item))
+      .filter((item) => hasBridgeMessageContent(item));
   }
   if (input && typeof input === "object") {
-    const message = { role: input.role || "user", content: input.content || input.text || "" };
-    return normalizeMessageContent(message.content).trim() ? [message] : [];
+    return responsesInputItemToMessages(input).filter((item) => hasBridgeMessageContent(item));
   }
   return [];
 }
@@ -1167,6 +1244,99 @@ export function normalizeIncomingChatMessages(body) {
   }
 
   return [];
+}
+
+function responsesInputItemToMessages(item) {
+  if (!item || typeof item !== "object") {
+    return [];
+  }
+
+  if (item.type === "function_call_output") {
+    return [{
+      role: "tool",
+      tool_call_id: item.call_id || item.tool_call_id || item.id || `call_${randomId(12)}`,
+      name: item.name || item.tool_name || "tool",
+      content: typeof item.output === "string" ? item.output : JSON.stringify(item.output ?? item.content ?? "", null, 2),
+    }];
+  }
+
+  if (item.type === "function_call") {
+    const toolName = item.name || item.function?.name;
+    if (!toolName) return [];
+    const args = item.arguments || item.function?.arguments || {};
+    return [{
+      role: "assistant",
+      content: null,
+      tool_calls: [{
+        id: item.call_id || item.id || `call_${randomId(12)}`,
+        type: "function",
+        function: {
+          name: toolName,
+          arguments: typeof args === "string" ? args : JSON.stringify(args),
+        },
+      }],
+    }];
+  }
+
+  if (item.type === "message") {
+    return [{
+      role: item.role || "user",
+      content: item.content || item.text || "",
+    }];
+  }
+
+  if (item.type === "input_text" || item.type === "output_text") {
+    return [{ role: "user", content: item.text || "" }];
+  }
+
+  if (item.role) {
+    return [{
+      role: item.role,
+      content: item.content || item.text || "",
+      tool_calls: Array.isArray(item.tool_calls) ? item.tool_calls : undefined,
+      tool_call_id: item.tool_call_id,
+      name: item.name,
+    }];
+  }
+
+  return [];
+}
+
+function hasBridgeMessageContent(message) {
+  if (!message || typeof message !== "object") return false;
+  if (message.role === "assistant" && Array.isArray(message.tool_calls) && message.tool_calls.length) return true;
+  if (message.role === "tool") return Boolean(String(message.tool_call_id || "").trim() || normalizeMessageContent(message.content).trim());
+  return Boolean(normalizeMessageContent(message.content).trim());
+}
+
+function toResponsesApiResponse(result, body, config) {
+  const output = result.message.tool_calls?.length
+    ? result.message.tool_calls.map((call) => ({
+        id: `fc_${call.id}`,
+        type: "function_call",
+        status: "completed",
+        call_id: call.id,
+        name: call.function.name,
+        arguments: call.function.arguments,
+      }))
+    : [{
+        id: `msg_${randomId(24)}`,
+        type: "message",
+        role: "assistant",
+        status: "completed",
+        content: [{ type: "output_text", text: result.message.content || "" }],
+      }];
+
+  return {
+    id: `resp_${randomId(24)}`,
+    object: "response",
+    created_at: result.created || Math.floor(Date.now() / 1000),
+    status: "completed",
+    model: body.model || config.defaultModel,
+    output,
+    usage: result.usage,
+    metadata: body.metadata || {},
+  };
 }
 
 function toChatCompletionResponse(result, model) {
