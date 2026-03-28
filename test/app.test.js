@@ -74,6 +74,8 @@ test("GET / serves the dashboard", async () => {
   assert.equal(response.status, 200);
 
   const html = await response.text();
+  assert.match(html, /Workspace Tabs/);
+  assert.match(html, /data-tab-target="accounts"/);
   assert.match(html, /Conversation Explorer/);
   assert.match(html, /Responses Lab/);
 });
