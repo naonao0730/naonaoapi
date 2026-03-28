@@ -55,6 +55,20 @@ test("createConfig defaults to a deployment-safe host and allows overrides", () 
   assert.equal(overridden.port, 4321);
 });
 
+test("createConfig normalizes quoted ph cookies and browser-like upstream defaults", () => {
+  const config = createConfig({
+    MIMO_BASE_URL: "https://aistudio.xiaomimimo.com/",
+    MIMO_COOKIE: 'serviceToken=abc; userId=1; xiaomichatbot_ph="8kg+LZ2RJ/fl+h7kzqHT0A=="',
+  });
+
+  assert.equal(config.mimoBaseUrl, "https://aistudio.xiaomimimo.com");
+  assert.equal(config.mimoOrigin, "https://aistudio.xiaomimimo.com");
+  assert.equal(config.mimoReferer, "https://aistudio.xiaomimimo.com/");
+  assert.equal(config.acceptLanguage, "system");
+  assert.equal(config.phValue, "8kg+LZ2RJ/fl+h7kzqHT0A==");
+  assert.match(config.userAgent, /Mozilla\/5\.0/);
+});
+
 test("GET / serves the dashboard", async () => {
   const response = await fetch(`${baseUrl}/`);
   assert.equal(response.status, 200);
@@ -117,6 +131,27 @@ test("account pool supports cookie-based account creation and strategy updates",
   const strategy = await strategyResponse.json();
   assert.equal(strategy.accounts.routingStrategy, "single");
   assert.equal(strategy.accounts.accounts[0].status, "healthy");
+});
+
+test("account import strips quotes from xiaomichatbot_ph cookie values", async () => {
+  const createResponse = await fetch(`${baseUrl}/api/accounts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: "quoted-ph",
+      cookie: 'serviceToken=abc; userId=1; xiaomichatbot_ph="quoted+token=="',
+      enabled: true,
+    }),
+  });
+
+  assert.equal(createResponse.status, 200);
+
+  const exportResponse = await fetch(`${baseUrl}/api/admin/export`);
+  assert.equal(exportResponse.status, 200);
+  const exported = await exportResponse.json();
+  const stored = exported.data.accounts.accounts.find((item) => item.name === "quoted-ph");
+  assert.ok(stored);
+  assert.equal(stored.phValue, "quoted+token==");
 });
 
 test("admin export and import round-trip managed state", async () => {

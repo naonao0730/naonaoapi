@@ -64,7 +64,7 @@ export function createAccount(state, input = {}) {
     id: `acct_${randomId(12)}`,
     name: String(input.name || "").trim() || `Account ${state.accountsStore.accounts.length + 1}`,
     cookie,
-    phValue: String(input.phValue || "").trim() || extractCookieValue(cookie, "xiaomichatbot_ph") || "",
+    phValue: normalizeCookieValue(input.phValue) || extractCookieValue(cookie, "xiaomichatbot_ph") || "",
     enabled: input.enabled !== false,
     notes: String(input.notes || "").trim(),
     createdAt: new Date().toISOString(),
@@ -107,7 +107,7 @@ export function patchAccount(state, accountId, input = {}) {
     }
   }
   if (input.phValue !== undefined) {
-    account.phValue = String(input.phValue || "").trim();
+    account.phValue = normalizeCookieValue(input.phValue);
   }
   if (input.enabled !== undefined) {
     account.enabled = Boolean(input.enabled);
@@ -357,9 +357,18 @@ export function extractCookieValue(cookieText, name) {
     if (index === -1) continue;
     const key = part.slice(0, index).trim();
     const value = part.slice(index + 1).trim();
-    if (key === name) return value;
+    if (key === name) return normalizeCookieValue(value);
   }
   return "";
+}
+
+export function normalizeCookieValue(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if ((text.startsWith("\"") && text.endsWith("\"")) || (text.startsWith("'") && text.endsWith("'"))) {
+    return text.slice(1, -1).trim();
+  }
+  return text;
 }
 
 function getEnabledAccounts(state) {
@@ -428,7 +437,7 @@ function normalizeAccountsStore(value, config) {
       id: item.id || `acct_${randomId(12)}`,
       name: item.name || "Unnamed Account",
       cookie: item.cookie || "",
-      phValue: item.phValue || extractCookieValue(item.cookie || "", "xiaomichatbot_ph") || "",
+      phValue: normalizeCookieValue(item.phValue) || extractCookieValue(item.cookie || "", "xiaomichatbot_ph") || "",
       enabled: item.enabled !== false,
       notes: item.notes || "",
       createdAt: item.createdAt || new Date().toISOString(),
