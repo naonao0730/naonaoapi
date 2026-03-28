@@ -3,7 +3,15 @@ import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 import { mkdtempSync, rmSync } from "node:fs";
-import { createApp, createConfig, normalizeModelsFromConfig, parseSSEText, summarizeMimoSSE } from "../src/app.js";
+import {
+  createApp,
+  createConfig,
+  normalizeIncomingChatMessages,
+  normalizeModelsFromConfig,
+  parseSSEText,
+  resolveUpstreamModelId,
+  summarizeMimoSSE,
+} from "../src/app.js";
 
 const CURL_SAMPLE = [
   "curl 'https://aistudio.xiaomimimo.com/open-apis/chat/conversation/list?xiaomichatbot_ph=quoted%2Btoken%3D%3D' \\",
@@ -66,6 +74,21 @@ test("createConfig defaults to a deployment-safe host and allows overrides", () 
   const overridden = createConfig({ HOST: "127.0.0.1", PORT: "4321" });
   assert.equal(overridden.host, "127.0.0.1");
   assert.equal(overridden.port, 4321);
+});
+
+test("resolveUpstreamModelId falls back to the configured MiMo model for OpenAI aliases", () => {
+  const config = createConfig({ DEFAULT_MODEL: "mimo-v2-pro" });
+  assert.equal(resolveUpstreamModelId("", config), "mimo-v2-pro");
+  assert.equal(resolveUpstreamModelId("gpt-4o", config), "mimo-v2-pro");
+  assert.equal(resolveUpstreamModelId("chatgpt-4o-latest", config), "mimo-v2-pro");
+  assert.equal(resolveUpstreamModelId("mimo-v2-pro", config), "mimo-v2-pro");
+});
+
+test("normalizeIncomingChatMessages accepts chat fallback fields", () => {
+  assert.deepEqual(normalizeIncomingChatMessages({ input: "hello" }), [{ role: "user", content: "hello" }]);
+  assert.deepEqual(normalizeIncomingChatMessages({ prompt: "hi" }), [{ role: "user", content: "hi" }]);
+  assert.deepEqual(normalizeIncomingChatMessages({ query: "hey" }), [{ role: "user", content: "hey" }]);
+  assert.deepEqual(normalizeIncomingChatMessages({ messages: [{ role: "user", content: "ok" }] }), [{ role: "user", content: "ok" }]);
 });
 
 test("createConfig normalizes quoted ph cookies and browser-like upstream defaults", () => {
@@ -184,8 +207,34 @@ test("POST /v1/chat/completions validates empty messages", async () => {
   assert.match(payload.error.message, /messages must not be empty/);
 });
 
+test("POST /chat/completions mirrors the OpenAI chat validation path", async () => {
+  const response = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages: [] }),
+  });
+
+  assert.equal(response.status, 400);
+  const payload = await response.json();
+  assert.equal(payload.error.type, "invalid_request_error");
+  assert.match(payload.error.message, /messages must not be empty/);
+});
+
 test("POST /v1/responses validates empty input", async () => {
   const response = await fetch(`${baseUrl}/v1/responses`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ input: "" }),
+  });
+
+  assert.equal(response.status, 400);
+  const payload = await response.json();
+  assert.equal(payload.error.type, "invalid_request_error");
+  assert.match(payload.error.message, /input must not be empty/);
+});
+
+test("POST /responses mirrors the OpenAI responses validation path", async () => {
+  const response = await fetch(`${baseUrl}/responses`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ input: "" }),
@@ -335,6 +384,23 @@ test("enabled bridge keys protect /v1 routes", async () => {
     body: JSON.stringify({ messages: [] }),
   });
   assert.equal(authenticated.status, 400);
+
+  const aliasUnauthenticated = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages: [] }),
+  });
+  assert.equal(aliasUnauthenticated.status, 401);
+
+  const aliasAuthenticated = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer bridge_test_key",
+    },
+    body: JSON.stringify({ messages: [] }),
+  });
+  assert.equal(aliasAuthenticated.status, 400);
 });
 
 test("app falls back to memory mode when state files are not writable", async () => {

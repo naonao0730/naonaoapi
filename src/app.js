@@ -166,8 +166,23 @@ export function createApp(config = createConfig()) {
   app.locals.runtimeState = state;
   app.use(cors());
   app.use(express.json({ limit: "10mb" }));
+  app.use(express.text({ limit: "10mb", type: ["text/plain", "text/json"] }));
   app.use(express.urlencoded({ extended: true }));
   app.use(express.static(PUBLIC_DIR));
+
+  app.use((req, _res, next) => {
+    if (typeof req.body === "string") {
+      const raw = req.body.trim();
+      if (raw && /^[\[{]/.test(raw)) {
+        try {
+          req.body = JSON.parse(raw);
+        } catch {
+          // Leave the original string in place so route handlers can decide what to do.
+        }
+      }
+    }
+    next();
+  });
 
   app.use(async (_req, res, next) => {
     try {
@@ -178,7 +193,7 @@ export function createApp(config = createConfig()) {
     }
   });
 
-  app.use("/v1", (req, res, next) => {
+  const requireBridgeApiKey = (req, res, next) => {
     if (!hasEnabledApiKeys(state)) {
       return next();
     }
@@ -191,7 +206,9 @@ export function createApp(config = createConfig()) {
 
     req.authenticatedKey = apiKey;
     next();
-  });
+  };
+
+  app.use("/v1", requireBridgeApiKey);
 
   app.get("/health", (_req, res) => {
     res.json({ ok: true, service: "mimo-openai-bridge", time: new Date().toISOString() });
@@ -389,7 +406,7 @@ export function createApp(config = createConfig()) {
     });
   });
 
-  app.get("/v1/models", async (_req, res) => {
+  const handleModelsRequest = async (_req, res) => {
     try {
       const auth = pickUpstreamAccount(state, config);
       const botConfig = await getBotConfig(config, auth);
@@ -407,29 +424,36 @@ export function createApp(config = createConfig()) {
     } catch (error) {
       sendOpenAIError(res, error, 500);
     }
-  });
+  };
 
-  app.post("/v1/chat/completions", async (req, res) => {
+  const handleChatCompletionsRequest = async (req, res) => {
     try {
-      const body = req.body || {};
-      if (!Array.isArray(body.messages) || !body.messages.length) {
-        return sendOpenAIError(res, new Error("messages must not be empty"), 400, "invalid_request_error");
+      const body = req.body && typeof req.body === "object" ? req.body : {};
+      const messages = normalizeIncomingChatMessages(body);
+      if (!messages.length) {
+        return sendOpenAIError(
+          res,
+          new Error("messages must not be empty; the client request did not include usable chat content"),
+          400,
+          "invalid_request_error",
+        );
       }
+      const requestBody = { ...body, messages };
 
-      if (body.stream) {
+      if (requestBody.stream) {
         const auth = pickUpstreamAccount(state, config);
-        return handleStreamingChatCompletion(res, body, config, auth);
+        return handleStreamingChatCompletion(res, requestBody, config, auth);
       }
 
       const auth = pickUpstreamAccount(state, config);
-      const result = await runCompletionLoop(body, config, auth);
-      res.json(toChatCompletionResponse(result, body.model || config.defaultModel));
+      const result = await runCompletionLoop(requestBody, config, auth);
+      res.json(toChatCompletionResponse(result, requestBody.model || config.defaultModel));
     } catch (error) {
       sendOpenAIError(res, error, 500);
     }
-  });
+  };
 
-  app.post("/v1/responses", async (req, res) => {
+  const handleResponsesRequest = async (req, res) => {
     try {
       const body = req.body || {};
       const messages = responsesInputToMessages(body.input);
@@ -474,7 +498,14 @@ export function createApp(config = createConfig()) {
     } catch (error) {
       sendOpenAIError(res, error, 500);
     }
-  });
+  };
+
+  app.get("/v1/models", handleModelsRequest);
+  app.get("/models", requireBridgeApiKey, handleModelsRequest);
+  app.post("/v1/chat/completions", handleChatCompletionsRequest);
+  app.post("/chat/completions", requireBridgeApiKey, handleChatCompletionsRequest);
+  app.post("/v1/responses", handleResponsesRequest);
+  app.post("/responses", requireBridgeApiKey, handleResponsesRequest);
 
   app.get("/api/tools/user-info", async (_req, res) => {
     try {
@@ -836,6 +867,7 @@ async function executeLocalToolCall(config, auth, call) {
 }
 
 async function requestMimoChat(config, auth, { model, prompt, multiMedias, enableThinking, webSearchMode, conversationId }) {
+  const upstreamModel = resolveUpstreamModelId(model, config);
   const payload = {
     msgId: randomId(32),
     conversationId: conversationId || randomId(32),
@@ -844,7 +876,7 @@ async function requestMimoChat(config, auth, { model, prompt, multiMedias, enabl
     modelConfig: {
       enableThinking,
       webSearchStatus: webSearchMode,
-      model,
+      model: upstreamModel,
     },
     multiMedias: Array.isArray(multiMedias) ? multiMedias : [],
   };
@@ -1120,6 +1152,23 @@ function responsesInputToMessages(input) {
   return [];
 }
 
+export function normalizeIncomingChatMessages(body) {
+  const payload = body && typeof body === "object" ? body : {};
+  if (Array.isArray(payload.messages) && payload.messages.length) {
+    return payload.messages;
+  }
+
+  const fallbacks = [payload.input, payload.prompt, payload.message, payload.query];
+  for (const candidate of fallbacks) {
+    const messages = responsesInputToMessages(candidate);
+    if (messages.length) {
+      return messages;
+    }
+  }
+
+  return [];
+}
+
 function toChatCompletionResponse(result, model) {
   return {
     id: result.id,
@@ -1267,6 +1316,24 @@ function resolvePreferredModelId(models, preferredId) {
     return preferredId;
   }
   return list.find((item) => item.default)?.id || list[0].id;
+}
+
+export function resolveUpstreamModelId(requestedModel, config) {
+  const model = String(requestedModel || "").trim();
+  if (!model) {
+    return config.defaultModel;
+  }
+  if (/^mimo-/i.test(model)) {
+    return model;
+  }
+
+  // Cursor and similar OpenAI-compatible clients may verify custom providers
+  // with standard OpenAI model names even when the upstream only accepts MiMo IDs.
+  if (/^(gpt-|chatgpt-|o1|o3|o4|omni-)/i.test(model)) {
+    return config.defaultModel;
+  }
+
+  return model;
 }
 
 function recordUpstreamSuccess(config, auth) {
