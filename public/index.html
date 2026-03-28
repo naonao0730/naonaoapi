@@ -1,20 +1,20 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MiMo OpenAI Bridge</title>
+    <title>MiMo 转 OpenAI 控制台</title>
     <style>
       :root {
-        --bg: #f3efe6;
-        --panel: rgba(255, 252, 246, 0.76);
-        --panel-strong: rgba(255, 249, 239, 0.92);
-        --ink: #14213d;
-        --muted: #5f6b7a;
-        --line: rgba(20, 33, 61, 0.12);
-        --accent: #ed6a3a;
-        --accent-2: #0f8b8d;
-        --shadow: 0 24px 60px rgba(20, 33, 61, 0.12);
+        --bg: #04101d;
+        --panel: rgba(8, 20, 38, 0.78);
+        --panel-strong: rgba(10, 26, 48, 0.94);
+        --ink: #ebf6ff;
+        --muted: #8ea7bf;
+        --line: rgba(89, 176, 255, 0.16);
+        --accent: #1fd3ff;
+        --accent-2: #7df7c7;
+        --shadow: 0 24px 60px rgba(0, 0, 0, 0.38);
         --radius: 24px;
       }
 
@@ -26,11 +26,12 @@
         margin: 0;
         min-height: 100vh;
         color: var(--ink);
-        font-family: "Space Grotesk", "Segoe UI", sans-serif;
+        font-family: "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif;
         background:
-          radial-gradient(circle at top left, rgba(237, 106, 58, 0.24), transparent 28%),
-          radial-gradient(circle at top right, rgba(15, 139, 141, 0.24), transparent 24%),
-          linear-gradient(135deg, #f7f2e8 0%, #efe6d7 48%, #f8f4ed 100%);
+          radial-gradient(circle at top left, rgba(31, 211, 255, 0.18), transparent 30%),
+          radial-gradient(circle at top right, rgba(125, 247, 199, 0.14), transparent 24%),
+          radial-gradient(circle at bottom right, rgba(59, 95, 255, 0.12), transparent 28%),
+          linear-gradient(160deg, #04101d 0%, #08182d 46%, #061322 100%);
       }
 
       body::before,
@@ -49,13 +50,13 @@
       body::before {
         top: -8rem;
         left: -8rem;
-        background: rgba(237, 106, 58, 0.12);
+        background: rgba(31, 211, 255, 0.12);
       }
 
       body::after {
         right: -10rem;
         bottom: -10rem;
-        background: rgba(15, 139, 141, 0.12);
+        background: rgba(125, 247, 199, 0.1);
       }
 
       .shell {
@@ -86,7 +87,7 @@
         content: "";
         position: absolute;
         inset: 0;
-        background: linear-gradient(120deg, rgba(255,255,255,0.24), transparent 42%);
+        background: linear-gradient(120deg, rgba(255,255,255,0.08), transparent 42%);
         pointer-events: none;
       }
 
@@ -97,7 +98,7 @@
         width: fit-content;
         padding: 8px 12px;
         border-radius: 999px;
-        background: rgba(20, 33, 61, 0.07);
+        background: rgba(255, 255, 255, 0.06);
         color: var(--muted);
         font-size: 12px;
         letter-spacing: 0.12em;
@@ -109,7 +110,7 @@
         height: 10px;
         border-radius: 50%;
         background: var(--accent-2);
-        box-shadow: 0 0 0 6px rgba(15, 139, 141, 0.14);
+        box-shadow: 0 0 0 6px rgba(125, 247, 199, 0.12);
       }
 
       h1,
@@ -142,7 +143,7 @@
         padding: 18px;
         border-radius: 20px;
         background: var(--panel-strong);
-        border: 1px solid rgba(20, 33, 61, 0.08);
+        border: 1px solid rgba(89, 176, 255, 0.12);
       }
 
       .stat-label {
@@ -177,16 +178,17 @@
       }
 
       .tab-button {
-        border: 1px solid rgba(20, 33, 61, 0.1);
-        background: rgba(20, 33, 61, 0.06);
+        border: 1px solid rgba(89, 176, 255, 0.12);
+        background: rgba(255, 255, 255, 0.04);
         color: var(--ink);
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
       }
 
       .tab-button.is-active,
       .tab-button[aria-selected="true"] {
-        background: linear-gradient(135deg, var(--accent), #f4a259);
-        color: white;
+        background: linear-gradient(135deg, var(--accent), #2c7dff);
+        color: #04101d;
+        font-weight: 700;
       }
 
       .tab-pane {
@@ -265,12 +267,14 @@
       }
 
       button.secondary {
-        background: rgba(20, 33, 61, 0.08);
+        background: rgba(255, 255, 255, 0.06);
         color: var(--ink);
       }
 
       button.accent {
-        background: linear-gradient(135deg, var(--accent), #f4a259);
+        background: linear-gradient(135deg, var(--accent), #2c7dff);
+        color: #04101d;
+        font-weight: 700;
       }
 
       button:disabled {
@@ -301,10 +305,10 @@
       input[type="text"],
       input[type="file"] {
         width: 100%;
-        border: 1px solid rgba(20, 33, 61, 0.12);
+        border: 1px solid rgba(89, 176, 255, 0.14);
         border-radius: 18px;
         padding: 14px 16px;
-        background: rgba(255, 255, 255, 0.78);
+        background: rgba(255, 255, 255, 0.05);
         color: var(--ink);
         outline: none;
       }
@@ -331,8 +335,8 @@
         margin: 0;
         padding: 18px;
         border-radius: 20px;
-        background: #101724;
-        color: #e5f0ff;
+        background: #07111d;
+        color: #dcefff;
         overflow: auto;
         min-height: 160px;
         line-height: 1.55;
@@ -341,8 +345,8 @@
       }
 
       pre.bad {
-        background: #31151d;
-        color: #ffd7df;
+        background: #32131b;
+        color: #ffd8df;
       }
 
       .console-meta {
@@ -357,14 +361,14 @@
         gap: 8px;
         padding: 8px 12px;
         border-radius: 999px;
-        background: rgba(15, 139, 141, 0.12);
-        color: #0d696a;
+        background: rgba(125, 247, 199, 0.12);
+        color: #9df8d4;
         font-size: 0.9rem;
       }
 
       .status.bad {
-        background: rgba(237, 106, 58, 0.16);
-        color: #b94a22;
+        background: rgba(255, 92, 128, 0.16);
+        color: #ffc1d0;
       }
 
       .empty {
@@ -408,27 +412,27 @@
   <body>
     <main class="shell">
       <section class="hero">
-        <div class="eyebrow"><span class="dot"></span>Bridge Console</div>
-        <h1>MiMo to OpenAI, with a real control surface.</h1>
+        <div class="eyebrow"><span class="dot"></span>MiMo 桥接控制台</div>
+        <h1>把 MiMo 接成 OpenAI 接口，也把管理面板做得更顺手。</h1>
         <p class="hero-copy">
-          Inspect the bridge, test chat completions, upload files, and verify runtime config from one workspace.
-          The dashboard now uses focused tabs, while staying static so it works without any frontend build step.
+          这个页面现在面向中文使用场景重新设计，重点放在账号管理、联调验证、会话工具和备份导入。
+          不需要前端构建步骤，打开服务后就能直接操作和排查问题。
         </p>
         <div class="stats">
           <article class="stat">
-            <div class="stat-label">Service</div>
-            <div class="stat-value" id="statService">Checking...</div>
+            <div class="stat-label">服务状态</div>
+            <div class="stat-value" id="statService">检查中...</div>
           </article>
           <article class="stat">
-            <div class="stat-label">Default Model</div>
+            <div class="stat-label">默认模型</div>
             <div class="stat-value" id="statModel">-</div>
           </article>
           <article class="stat">
-            <div class="stat-label">Available Models</div>
+            <div class="stat-label">可用模型</div>
             <div class="stat-value" id="statModels">-</div>
           </article>
           <article class="stat">
-            <div class="stat-label">Managed Accounts</div>
+            <div class="stat-label">托管账号</div>
             <div class="stat-value" id="statTools">-</div>
           </article>
         </div>
@@ -437,17 +441,17 @@
       <section class="tab-shell panel">
         <div class="panel-head">
           <div>
-            <h2 class="panel-title">Workspace Tabs</h2>
-            <p class="panel-subtitle">Split the bridge into focused views so account ops, playground calls, tools, and backups stay easier to manage.</p>
+            <h2 class="panel-title">工作区导航</h2>
+            <p class="panel-subtitle">把账号、调试、工具和备份拆开，减少来回滚动和误操作。</p>
           </div>
-          <div class="status" id="runtimeStatus">Waiting for bootstrap...</div>
+          <div class="status" id="runtimeStatus">等待初始化...</div>
         </div>
-        <div class="tab-nav" role="tablist" aria-label="Dashboard sections">
-          <button class="tab-button is-active" id="tab-overview" type="button" role="tab" aria-selected="true" aria-controls="pane-overview" data-tab-target="overview">Overview</button>
-          <button class="tab-button" id="tab-accounts" type="button" role="tab" aria-selected="false" aria-controls="pane-accounts" data-tab-target="accounts">Accounts</button>
-          <button class="tab-button" id="tab-playground" type="button" role="tab" aria-selected="false" aria-controls="pane-playground" data-tab-target="playground">Playground</button>
-          <button class="tab-button" id="tab-tools" type="button" role="tab" aria-selected="false" aria-controls="pane-tools" data-tab-target="tools">Tools</button>
-          <button class="tab-button" id="tab-backup" type="button" role="tab" aria-selected="false" aria-controls="pane-backup" data-tab-target="backup">Backup</button>
+        <div class="tab-nav" role="tablist" aria-label="控制台分区">
+          <button class="tab-button is-active" id="tab-overview" type="button" role="tab" aria-selected="true" aria-controls="pane-overview" data-tab-target="overview">总览</button>
+          <button class="tab-button" id="tab-accounts" type="button" role="tab" aria-selected="false" aria-controls="pane-accounts" data-tab-target="accounts">账号与密钥</button>
+          <button class="tab-button" id="tab-playground" type="button" role="tab" aria-selected="false" aria-controls="pane-playground" data-tab-target="playground">聊天调试</button>
+          <button class="tab-button" id="tab-tools" type="button" role="tab" aria-selected="false" aria-controls="pane-tools" data-tab-target="tools">会话与文件</button>
+          <button class="tab-button" id="tab-backup" type="button" role="tab" aria-selected="false" aria-controls="pane-backup" data-tab-target="backup">备份导入</button>
         </div>
       </section>
 
@@ -457,16 +461,16 @@
             <article class="panel">
               <div class="panel-head">
                 <div>
-                  <h2 class="panel-title">Runtime Inspector</h2>
-                  <p class="panel-subtitle">Quick-read the bridge endpoints without leaving the page.</p>
+                  <h2 class="panel-title">运行状态</h2>
+                  <p class="panel-subtitle">直接查看桥接服务核心接口，不用离开当前页面。</p>
                 </div>
               </div>
               <div class="actions">
-                <button class="secondary" data-endpoint="/health">Health</button>
-                <button class="secondary" data-endpoint="/api/config">Config</button>
-                <button class="secondary" data-endpoint="/v1/models">Models</button>
-                <button class="secondary" data-endpoint="/api/examples">Examples</button>
-                <button class="secondary" data-endpoint="/api/tools/user-info">User Info</button>
+                <button class="secondary" data-endpoint="/health">健康检查</button>
+                <button class="secondary" data-endpoint="/api/config">运行配置</button>
+                <button class="secondary" data-endpoint="/v1/models">模型列表</button>
+                <button class="secondary" data-endpoint="/api/examples">示例代码</button>
+                <button class="secondary" data-endpoint="/api/tools/user-info">当前用户</button>
               </div>
             </article>
           </div>
@@ -475,12 +479,12 @@
             <article class="panel">
               <div class="panel-head">
                 <div>
-                  <h2 class="panel-title">Examples</h2>
-                  <p class="panel-subtitle">Pulled from the server so the snippets always reflect the current port and model.</p>
+                  <h2 class="panel-title">接入示例</h2>
+                  <p class="panel-subtitle">示例会跟着服务端端口和模型一起变化，方便直接复制验证。</p>
                 </div>
-                <button class="secondary" id="refreshExamples">Refresh</button>
+                <button class="secondary" id="refreshExamples">刷新示例</button>
               </div>
-              <pre id="examplesConsole">Loading examples...</pre>
+              <pre id="examplesConsole">正在加载示例...</pre>
             </article>
           </div>
         </div>
@@ -492,49 +496,49 @@
             <article class="panel">
               <div class="panel-head">
                 <div>
-                  <h2 class="panel-title">Account Pool</h2>
-                  <p class="panel-subtitle">Add MiMo accounts by cookie or full curl, preview the extracted result, switch routing mode, and choose the active account for single-account mode.</p>
+                  <h2 class="panel-title">账号池</h2>
+                  <p class="panel-subtitle">支持粘贴 Cookie 或完整 cURL，先预览解析结果，再加入轮询池或单账号模式。</p>
                 </div>
               </div>
               <div class="field-grid">
                 <div class="field">
-                  <label for="accountStrategy">Routing Strategy</label>
+                  <label for="accountStrategy">路由策略</label>
                   <select id="accountStrategy">
-                    <option value="round_robin">round_robin</option>
-                    <option value="single">single</option>
+                    <option value="round_robin">轮询</option>
+                    <option value="single">固定单账号</option>
                   </select>
                 </div>
                 <div class="field">
-                  <label for="accountActive">Active Account</label>
+                  <label for="accountActive">当前激活账号</label>
                   <select id="accountActive">
-                    <option value="">No managed account</option>
+                    <option value="">暂无托管账号</option>
                   </select>
                 </div>
               </div>
               <div class="field">
-                <label for="accountName">Account Name</label>
-                <input id="accountName" type="text" placeholder="For example: personal-mimo-1" />
+                <label for="accountName">账号名称</label>
+                <input id="accountName" type="text" placeholder="例如：主账号 / 备用账号 1" />
               </div>
               <div class="field">
                 <label for="accountCookie">Cookie / cURL</label>
-                <textarea id="accountCookie" placeholder="Paste the full MiMo cookie or an entire curl command here"></textarea>
+                <textarea id="accountCookie" placeholder="在这里粘贴完整 Cookie，或者浏览器抓到的整段 cURL 命令"></textarea>
               </div>
               <label class="checkline">
                 <input id="accountEnabled" type="checkbox" checked />
-                <span>Enable this account immediately after creation.</span>
+                <span>添加后立即启用这个账号。</span>
               </label>
               <div class="inline-actions">
-                <button class="secondary" id="previewAccountInput">Preview Parse</button>
-                <button class="accent" id="addAccount">Add Account</button>
-                <button class="secondary" id="saveStrategy">Save Strategy</button>
-                <button class="secondary" id="saveActiveAccount">Save Active</button>
-                <button class="secondary" id="checkAccount">Check Selected</button>
-                <button class="secondary" id="refreshAccounts">Refresh</button>
-                <button class="secondary" id="deleteAccount">Delete Selected</button>
+                <button class="secondary" id="previewAccountInput">预览解析</button>
+                <button class="accent" id="addAccount">添加账号</button>
+                <button class="secondary" id="saveStrategy">保存策略</button>
+                <button class="secondary" id="saveActiveAccount">保存激活账号</button>
+                <button class="secondary" id="checkAccount">检测选中账号</button>
+                <button class="secondary" id="refreshAccounts">刷新账号池</button>
+                <button class="secondary" id="deleteAccount">删除选中账号</button>
               </div>
-              <div class="console-meta" id="accountParseMeta">No parse preview yet.</div>
-              <pre id="accountParsePreview" class="empty">Paste a cookie or curl command, then click Preview Parse.</pre>
-              <pre id="accountsConsole">Loading account pool...</pre>
+              <div class="console-meta" id="accountParseMeta">还没有解析预览。</div>
+              <pre id="accountParsePreview" class="empty">先粘贴 Cookie 或 cURL，再点击“预览解析”。</pre>
+              <pre id="accountsConsole">正在加载账号池...</pre>
             </article>
           </div>
 
@@ -542,41 +546,41 @@
             <article class="panel">
               <div class="panel-head">
                 <div>
-                  <h2 class="panel-title">API Key Vault</h2>
-                  <p class="panel-subtitle">Create multiple access keys for your bridge. When at least one key is enabled, `/v1/*` requires `Authorization: Bearer ...`.</p>
+                  <h2 class="panel-title">桥接密钥库</h2>
+                  <p class="panel-subtitle">给你的桥接服务生成多个访问密钥；只要启用了任意一个，`/v1/*` 就会要求 Bearer 鉴权。</p>
                 </div>
               </div>
               <div class="field-grid">
                 <div class="field">
-                  <label for="bridgeKeyName">Key Name</label>
-                  <input id="bridgeKeyName" type="text" placeholder="For example: automation-client" />
+                  <label for="bridgeKeyName">密钥名称</label>
+                  <input id="bridgeKeyName" type="text" placeholder="例如：自动化脚本 / 内网服务" />
                 </div>
                 <div class="field">
-                  <label for="bridgeKeyCustom">Custom Key</label>
-                  <input id="bridgeKeyCustom" type="text" placeholder="Optional, otherwise one will be generated" />
+                  <label for="bridgeKeyCustom">自定义密钥</label>
+                  <input id="bridgeKeyCustom" type="text" placeholder="可选；留空则自动生成" />
                 </div>
               </div>
               <div class="field">
-                <label for="bridgeKeyAuth">Dashboard Client Key</label>
-                <input id="bridgeKeyAuth" type="text" placeholder="Used automatically for /v1/* requests from this dashboard" />
+                <label for="bridgeKeyAuth">当前面板使用的密钥</label>
+                <input id="bridgeKeyAuth" type="text" placeholder="这个页面调用 /v1/* 时会自动带上它" />
               </div>
               <div class="field">
-                <label for="bridgeKeyPicker">Managed Keys</label>
+                <label for="bridgeKeyPicker">已托管密钥</label>
                 <select id="bridgeKeyPicker">
-                  <option value="">No keys yet</option>
+                  <option value="">暂无密钥</option>
                 </select>
               </div>
               <label class="checkline">
                 <input id="bridgeKeyEnabled" type="checkbox" checked />
-                <span>Enable this key on creation.</span>
+                <span>创建后立即启用这个密钥。</span>
               </label>
               <div class="inline-actions">
-                <button class="accent" id="createKey">Create Key</button>
-                <button class="secondary" id="toggleKey">Toggle Selected</button>
-                <button class="secondary" id="refreshKeys">Refresh</button>
-                <button class="secondary" id="deleteKey">Delete Selected</button>
+                <button class="accent" id="createKey">创建密钥</button>
+                <button class="secondary" id="toggleKey">切换启用状态</button>
+                <button class="secondary" id="refreshKeys">刷新密钥</button>
+                <button class="secondary" id="deleteKey">删除选中密钥</button>
               </div>
-              <pre id="keysConsole">Loading key pool...</pre>
+              <pre id="keysConsole">正在加载密钥池...</pre>
             </article>
           </div>
         </div>
@@ -588,30 +592,30 @@
             <article class="panel">
               <div class="panel-head">
                 <div>
-                  <h2 class="panel-title">Chat Playground</h2>
-                  <p class="panel-subtitle">Send a minimal OpenAI-compatible request to your bridge.</p>
+                  <h2 class="panel-title">聊天调试台</h2>
+                  <p class="panel-subtitle">直接向桥接的 `/v1/chat/completions` 发请求，验证模型和工具调用是否通畅。</p>
                 </div>
               </div>
               <div class="field-grid">
                 <div class="field">
-                  <label for="chatModel">Model</label>
+                  <label for="chatModel">模型</label>
                   <select id="chatModel"></select>
                 </div>
                 <div class="field">
-                  <label for="chatTemperature">Temperature</label>
+                  <label for="chatTemperature">温度</label>
                   <input id="chatTemperature" type="text" value="0.8" />
                 </div>
               </div>
               <div class="field">
-                <label for="chatPrompt">Prompt</label>
-                <textarea id="chatPrompt">Introduce this bridge in one short paragraph and mention one practical use case.</textarea>
+                <label for="chatPrompt">提问内容</label>
+                <textarea id="chatPrompt">请用中文简短介绍一下这个桥接服务，并给一个实际使用场景。</textarea>
               </div>
               <label class="checkline">
                 <input id="autoExecute" type="checkbox" />
-                <span>Auto-execute local tools when the assistant requests them.</span>
+                <span>当模型请求本地工具时，自动在桥接内部继续执行。</span>
               </label>
               <div class="inline-actions">
-                <button class="accent" id="runChat">Run Chat Completion</button>
+                <button class="accent" id="runChat">发送聊天请求</button>
               </div>
             </article>
           </div>
@@ -620,19 +624,19 @@
             <article class="panel">
               <div class="panel-head">
                 <div>
-                  <h2 class="panel-title">Responses Lab</h2>
-                  <p class="panel-subtitle">Exercise the `/v1/responses` route with a small payload and optional local-tool auto execution.</p>
+                  <h2 class="panel-title">Responses 路由调试</h2>
+                  <p class="panel-subtitle">验证 `/v1/responses` 兼容层，适合测试推理强度和工具自动执行。</p>
                 </div>
               </div>
               <div class="field-grid">
                 <div class="field">
-                  <label for="responsesModel">Model</label>
+                  <label for="responsesModel">模型</label>
                   <select id="responsesModel"></select>
                 </div>
                 <div class="field">
-                  <label for="responsesReasoning">Reasoning</label>
+                  <label for="responsesReasoning">推理强度</label>
                   <select id="responsesReasoning">
-                    <option value="">Default</option>
+                    <option value="">默认</option>
                     <option value="low">low</option>
                     <option value="medium">medium</option>
                     <option value="high">high</option>
@@ -640,15 +644,15 @@
                 </div>
               </div>
               <div class="field">
-                <label for="responsesPrompt">Input</label>
-                <textarea id="responsesPrompt">Summarize what this bridge does in two bullet points.</textarea>
+                <label for="responsesPrompt">输入内容</label>
+                <textarea id="responsesPrompt">请用两条要点总结这个桥接服务能做什么。</textarea>
               </div>
               <label class="checkline">
                 <input id="responsesAutoExecute" type="checkbox" />
-                <span>Auto-execute local tools for the Responses API too.</span>
+                <span>Responses 路由也自动执行本地工具。</span>
               </label>
               <div class="inline-actions">
-                <button class="accent" id="runResponses">Run Responses API</button>
+                <button class="accent" id="runResponses">发送 Responses 路由请求</button>
               </div>
             </article>
           </div>
@@ -661,29 +665,29 @@
             <article class="panel">
               <div class="panel-head">
                 <div>
-                  <h2 class="panel-title">Conversation Explorer</h2>
-                  <p class="panel-subtitle">Inspect conversation lists and drill into dialog history from the built-in tool endpoints.</p>
+                  <h2 class="panel-title">会话浏览器</h2>
+                  <p class="panel-subtitle">查看会话列表、选择会话 ID，并继续拉取历史对话记录。</p>
                 </div>
               </div>
               <div class="field-grid">
                 <div class="field">
-                  <label for="conversationSearch">Search</label>
-                  <input id="conversationSearch" type="text" placeholder="Optional keyword" />
+                  <label for="conversationSearch">搜索关键词</label>
+                  <input id="conversationSearch" type="text" placeholder="可选，按标题或关键词筛选" />
                 </div>
                 <div class="field">
-                  <label for="conversationPicker">Conversation</label>
+                  <label for="conversationPicker">会话选择</label>
                   <select id="conversationPicker">
-                    <option value="">Load conversations first</option>
+                    <option value="">先加载会话列表</option>
                   </select>
                 </div>
               </div>
               <div class="field">
-                <label for="conversationId">Conversation ID</label>
-                <input id="conversationId" type="text" placeholder="Pick from the list or paste an ID" />
+                <label for="conversationId">会话 ID</label>
+                <input id="conversationId" type="text" placeholder="可从上方选择，或手动粘贴一个 conversationId" />
               </div>
               <div class="inline-actions">
-                <button class="secondary" id="loadConversations">Load Conversations</button>
-                <button class="accent" id="loadDialogs">Load Dialogs</button>
+                <button class="secondary" id="loadConversations">加载会话列表</button>
+                <button class="accent" id="loadDialogs">加载对话记录</button>
               </div>
             </article>
           </div>
@@ -692,26 +696,26 @@
             <article class="panel">
               <div class="panel-head">
                 <div>
-                  <h2 class="panel-title">File Upload</h2>
-                  <p class="panel-subtitle">Push a file through the MiMo upload endpoint and optionally trigger parsing.</p>
+                  <h2 class="panel-title">文件上传</h2>
+                  <p class="panel-subtitle">把文件走 MiMo 上传链路，并可选触发解析能力。</p>
                 </div>
               </div>
               <div class="field-grid">
                 <div class="field">
-                  <label for="uploadModel">Parse Model</label>
+                  <label for="uploadModel">解析模型</label>
                   <select id="uploadModel"></select>
                 </div>
                 <div class="field">
-                  <label for="uploadFile">File</label>
+                  <label for="uploadFile">选择文件</label>
                   <input id="uploadFile" type="file" />
                 </div>
               </div>
               <label class="checkline">
                 <input id="parseFile" type="checkbox" checked />
-                <span>Ask MiMo to parse the uploaded file.</span>
+                <span>上传后请求 MiMo 解析这个文件。</span>
               </label>
               <div class="inline-actions">
-                <button class="accent" id="runUpload">Upload File</button>
+                <button class="accent" id="runUpload">上传文件</button>
               </div>
             </article>
           </div>
@@ -723,24 +727,24 @@
           <article class="panel">
             <div class="panel-head">
               <div>
-                <h2 class="panel-title">Import / Export</h2>
-                <p class="panel-subtitle">Export the full account/key snapshot or import it back in replace or merge mode.</p>
+                <h2 class="panel-title">导入 / 导出</h2>
+                <p class="panel-subtitle">导出完整账号和密钥快照，也可以按替换或合并模式重新导入。</p>
               </div>
             </div>
             <div class="field">
-              <label for="backupMode">Import Mode</label>
+              <label for="backupMode">导入模式</label>
               <select id="backupMode">
-                <option value="replace">replace</option>
-                <option value="merge">merge</option>
+                <option value="replace">替换</option>
+                <option value="merge">合并</option>
               </select>
             </div>
             <div class="field">
-              <label for="backupJson">Snapshot JSON</label>
-              <textarea id="backupJson" placeholder="Paste exported JSON here"></textarea>
+              <label for="backupJson">快照 JSON</label>
+              <textarea id="backupJson" placeholder="把导出的 JSON 粘贴到这里"></textarea>
             </div>
             <div class="inline-actions">
-              <button class="secondary" id="exportState">Export Snapshot</button>
-              <button class="accent" id="importState">Import Snapshot</button>
+              <button class="secondary" id="exportState">导出快照</button>
+              <button class="accent" id="importState">导入快照</button>
             </div>
           </article>
         </div>
@@ -749,12 +753,12 @@
       <section class="panel console-panel">
         <div class="panel-head">
           <div>
-            <h2 class="panel-title">Response Console</h2>
-            <p class="panel-subtitle">The latest payload from any action on this page.</p>
+            <h2 class="panel-title">返回控制台</h2>
+            <p class="panel-subtitle">这个页面上任意操作的最新返回结果都会显示在这里。</p>
           </div>
         </div>
-        <div class="console-meta" id="consoleMeta">No requests yet.</div>
-        <pre id="consoleOutput" class="empty">Run a check, send a chat request, or upload a file.</pre>
+        <div class="console-meta" id="consoleMeta">还没有发起请求。</div>
+        <pre id="consoleOutput" class="empty">先做一次健康检查、发送聊天请求，或者上传一个文件。</pre>
       </section>
     </main>
 
@@ -837,7 +841,7 @@
         refs.consoleMeta.textContent = label;
         refs.consoleOutput.textContent = pretty(payload);
         refs.consoleOutput.classList.toggle("empty", false);
-        refs.runtimeStatus.textContent = isError ? "Request failed" : "Ready";
+        refs.runtimeStatus.textContent = isError ? "请求失败" : "就绪";
         refs.runtimeStatus.classList.toggle("bad", isError);
       }
 
@@ -854,10 +858,20 @@
       }
 
       function resetAccountParsePreview() {
-        refs.accountParseMeta.textContent = "No parse preview yet.";
-        refs.accountParsePreview.textContent = "Paste a cookie or curl command, then click Preview Parse.";
+        refs.accountParseMeta.textContent = "还没有解析预览。";
+        refs.accountParsePreview.textContent = "先粘贴 Cookie 或 cURL，再点击“预览解析”。";
         refs.accountParsePreview.classList.add("empty");
         refs.accountParsePreview.classList.remove("bad");
+      }
+
+      function translateAccountStatus(status) {
+        const map = {
+          healthy: "正常",
+          degraded: "降级",
+          cooldown: "冷却中",
+          disabled: "已禁用",
+        };
+        return map[status] || status;
       }
 
       function resolveTab(tabId) {
@@ -952,7 +966,7 @@
         if (!items.length) {
           const option = document.createElement("option");
           option.value = "";
-          option.textContent = "No conversation IDs detected";
+          option.textContent = "没有识别到可用的 conversationId";
           refs.conversationPicker.appendChild(option);
           return;
         }
@@ -976,13 +990,13 @@
 
         const emptyOption = document.createElement("option");
         emptyOption.value = "";
-        emptyOption.textContent = data.accounts.length ? "Environment fallback / none" : "No managed account";
+        emptyOption.textContent = data.accounts.length ? "使用环境变量账号 / 不固定" : "暂无托管账号";
         refs.accountActive.appendChild(emptyOption);
 
         data.accounts.forEach((account) => {
           const option = document.createElement("option");
           option.value = account.id;
-          option.textContent = `${account.name} (${account.status})`;
+          option.textContent = `${account.name}（${translateAccountStatus(account.status)}）`;
           if (account.id === data.activeAccountId) {
             option.selected = true;
           }
@@ -998,7 +1012,7 @@
         if (!data.keys.length) {
           const option = document.createElement("option");
           option.value = "";
-          option.textContent = "No keys yet";
+          option.textContent = "暂无密钥";
           refs.bridgeKeyPicker.appendChild(option);
           return;
         }
@@ -1006,7 +1020,7 @@
         data.keys.forEach((item, index) => {
           const option = document.createElement("option");
           option.value = item.id;
-          option.textContent = `${item.name} (${item.enabled ? "enabled" : "disabled"}) - ${item.preview}`;
+          option.textContent = `${item.name}（${item.enabled ? "已启用" : "已停用"}） - ${item.preview}`;
           if (index === 0) option.selected = true;
           refs.bridgeKeyPicker.appendChild(option);
         });
@@ -1017,7 +1031,7 @@
         if (!models.length) {
           const option = document.createElement("option");
           option.value = fallback || "";
-          option.textContent = fallback || "No models available";
+          option.textContent = fallback || "暂无可用模型";
           select.appendChild(option);
           return;
         }
@@ -1025,7 +1039,7 @@
         models.forEach((model) => {
           const option = document.createElement("option");
           option.value = model.id;
-          option.textContent = model.default ? `${model.id} (default)` : model.id;
+          option.textContent = model.default ? `${model.id}（默认）` : model.id;
           if (model.id === fallback) option.selected = true;
           select.appendChild(option);
         });
@@ -1058,7 +1072,7 @@
 
       async function bootstrap() {
         try {
-          setLoading("Bootstrapping...");
+          setLoading("正在初始化控制台...");
           const [health, config, examples] = await Promise.all([
             requestJson("/health"),
             requestJson("/api/config"),
@@ -1068,11 +1082,11 @@
           state.config = config.config;
           state.examples = examples.data;
 
-          refs.statService.textContent = health.ok ? "Online" : "Issue";
+          refs.statService.textContent = health.ok ? "在线" : "异常";
           refs.statModel.textContent = config.config.defaultModel || "-";
           refs.statModels.textContent = String(config.config.models.length);
           refs.statTools.textContent = `${config.config.accountPool.enabled}/${config.config.accountPool.total}`;
-          refs.runtimeStatus.textContent = "Bridge online";
+          refs.runtimeStatus.textContent = "桥接已就绪";
           refs.runtimeStatus.classList.remove("bad");
 
           fillModelSelect(refs.chatModel, config.config.models, config.config.defaultModel);
@@ -1082,56 +1096,56 @@
           renderKeyPool(config.config.keyPool);
           refs.examplesConsole.textContent = pretty(examples.data);
 
-          setConsole("Bootstrap snapshot", { health, config, examples }, false);
+          setConsole("初始化快照", { health, config, examples }, false);
         } catch (error) {
-          refs.statService.textContent = "Offline";
-          refs.runtimeStatus.textContent = "Bootstrap failed";
+          refs.statService.textContent = "离线";
+          refs.runtimeStatus.textContent = "初始化失败";
           refs.runtimeStatus.classList.add("bad");
-          setConsole("Bootstrap failed", { error: error.message }, true);
+          setConsole("初始化失败", { error: error.message }, true);
         }
       }
 
       async function inspectEndpoint(endpoint) {
         try {
-          setLoading(`Fetching ${endpoint}...`);
+          setLoading(`正在请求 ${endpoint} ...`);
           const payload = await requestJson(endpoint);
-          setConsole(`Response from ${endpoint}`, payload, false);
+          setConsole(`${endpoint} 的响应`, payload, false);
         } catch (error) {
-          setConsole(`Failed request: ${endpoint}`, { error: error.message }, true);
+          setConsole(`请求失败：${endpoint}`, { error: error.message }, true);
         }
       }
 
       async function refreshAccounts() {
         try {
-          setLoading("Refreshing account pool...");
+          setLoading("正在刷新账号池...");
           const payload = await requestJson("/api/accounts");
           renderAccountPool(payload.data);
-          setConsole("Account pool", payload, false);
+          setConsole("账号池", payload, false);
         } catch (error) {
-          setConsole("Account refresh failed", { error: error.message }, true);
+          setConsole("刷新账号池失败", { error: error.message }, true);
         }
       }
 
       async function previewAccountInput() {
         const input = refs.accountCookie.value.trim();
         if (!input) {
-          setConsole("Account preview validation", { error: "Cookie / cURL must not be empty." }, true);
+          setConsole("账号预览校验", { error: "Cookie / cURL 不能为空。" }, true);
           return;
         }
 
         refs.previewAccountInput.disabled = true;
         try {
-          setLoading("Parsing account input...");
+          setLoading("正在解析账号输入...");
           const payload = await requestJson("/api/accounts/parse-input", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ input }),
           });
-          setAccountParsePreview("Parsed account input", payload.data, false);
-          setConsole("Account input preview", payload, false);
+          setAccountParsePreview("解析结果预览", payload.data, false);
+          setConsole("账号输入预览", payload, false);
         } catch (error) {
-          setAccountParsePreview("Parse failed", { error: error.message }, true);
-          setConsole("Account input preview failed", { error: error.message }, true);
+          setAccountParsePreview("解析失败", { error: error.message }, true);
+          setConsole("账号输入预览失败", { error: error.message }, true);
         } finally {
           refs.previewAccountInput.disabled = false;
         }
@@ -1140,13 +1154,13 @@
       async function addAccount() {
         const cookie = refs.accountCookie.value.trim();
         if (!cookie) {
-          setConsole("Account validation", { error: "Cookie / cURL must not be empty." }, true);
+          setConsole("账号校验", { error: "Cookie / cURL 不能为空。" }, true);
           return;
         }
 
         refs.addAccount.disabled = true;
         try {
-          setLoading("Adding account...");
+          setLoading("正在添加账号...");
           const payload = await requestJson("/api/accounts", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1160,9 +1174,9 @@
           refs.accountName.value = "";
           refs.accountCookie.value = "";
           resetAccountParsePreview();
-          setConsole("Account created", payload, false);
+          setConsole("账号已创建", payload, false);
         } catch (error) {
-          setConsole("Account creation failed", { error: error.message }, true);
+          setConsole("创建账号失败", { error: error.message }, true);
         } finally {
           refs.addAccount.disabled = false;
         }
@@ -1170,70 +1184,70 @@
 
       async function saveStrategy() {
         try {
-          setLoading("Saving account strategy...");
+          setLoading("正在保存账号策略...");
           const payload = await requestJson("/api/accounts/strategy", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ routingStrategy: refs.accountStrategy.value }),
           });
           renderAccountPool(payload.accounts);
-          setConsole("Account strategy saved", payload, false);
+          setConsole("账号策略已保存", payload, false);
         } catch (error) {
-          setConsole("Save strategy failed", { error: error.message }, true);
+          setConsole("保存账号策略失败", { error: error.message }, true);
         }
       }
 
       async function saveActiveAccount() {
         try {
-          setLoading("Saving active account...");
+          setLoading("正在保存激活账号...");
           const payload = await requestJson("/api/accounts/active", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ accountId: refs.accountActive.value || null }),
           });
           renderAccountPool(payload.accounts);
-          setConsole("Active account saved", payload, false);
+          setConsole("激活账号已保存", payload, false);
         } catch (error) {
-          setConsole("Save active account failed", { error: error.message }, true);
+          setConsole("保存激活账号失败", { error: error.message }, true);
         }
       }
 
       async function deleteSelectedAccount() {
         const accountId = refs.accountActive.value;
         if (!accountId) {
-          setConsole("Delete account", { error: "Select a managed account first." }, true);
+          setConsole("删除账号", { error: "请先选择一个托管账号。" }, true);
           return;
         }
 
         try {
-          setLoading("Deleting account...");
+          setLoading("正在删除账号...");
           const payload = await requestJson(`/api/accounts/${accountId}`, { method: "DELETE" });
           renderAccountPool(payload.accounts);
-          setConsole("Account deleted", payload, false);
+          setConsole("账号已删除", payload, false);
         } catch (error) {
-          setConsole("Delete account failed", { error: error.message }, true);
+          setConsole("删除账号失败", { error: error.message }, true);
         }
       }
 
       async function checkSelectedAccount() {
         const accountId = refs.accountActive.value;
         if (!accountId) {
-          setConsole("Check account", { error: "Select a managed account first." }, true);
+          setConsole("检测账号", { error: "请先选择一个托管账号。" }, true);
           return;
         }
 
         try {
-          setLoading("Checking account...");
+          setLoading("正在检测账号可用性...");
           const payload = await requestJson(`/api/accounts/${accountId}/check`, { method: "POST" });
           renderAccountPool(payload.accounts);
-          setConsole("Account check result", payload, false);
+          setConsole("账号检测结果", payload, false);
         } catch (error) {
           try {
             await refreshAccounts();
           } catch {
             // ignore refresh failure
           }
-          setConsole("Account check failed", { error: error.message }, true);
+          setConsole("账号检测失败", { error: error.message }, true);
         }
       }
 
@@ -1244,14 +1258,14 @@
           const params = new URLSearchParams();
           if (search) params.set("search", search);
 
-          setLoading("Loading conversations...");
+          setLoading("正在加载会话列表...");
           const endpoint = `/api/tools/conversations${params.toString() ? `?${params.toString()}` : ""}`;
           const payload = await requestJson(endpoint);
           const candidates = collectConversationCandidates(payload);
           renderConversationOptions(candidates);
-          setConsole("Conversation list", payload, false);
+          setConsole("会话列表", payload, false);
         } catch (error) {
-          setConsole("Conversation list failed", { error: error.message }, true);
+          setConsole("加载会话列表失败", { error: error.message }, true);
         } finally {
           refs.loadConversations.disabled = false;
         }
@@ -1260,21 +1274,21 @@
       async function loadDialogs() {
         const conversationId = refs.conversationId.value.trim() || refs.conversationPicker.value;
         if (!conversationId) {
-          setConsole("Dialog validation", { error: "Provide a conversation ID first." }, true);
+          setConsole("对话校验", { error: "请先提供一个 conversationId。" }, true);
           return;
         }
 
         refs.loadDialogs.disabled = true;
         try {
-          setLoading("Loading dialogs...");
+          setLoading("正在加载对话记录...");
           const payload = await requestJson("/api/tools/dialogs", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ conversationId }),
           });
-          setConsole(`Dialogs for ${conversationId}`, payload, false);
+          setConsole(`会话 ${conversationId} 的对话记录`, payload, false);
         } catch (error) {
-          setConsole("Dialog fetch failed", { error: error.message, conversationId }, true);
+          setConsole("加载对话记录失败", { error: error.message, conversationId }, true);
         } finally {
           refs.loadDialogs.disabled = false;
         }
@@ -1286,13 +1300,13 @@
         const temperature = Number(refs.chatTemperature.value);
 
         if (!prompt) {
-          setConsole("Chat validation", { error: "Prompt must not be empty." }, true);
+          setConsole("聊天校验", { error: "提问内容不能为空。" }, true);
           return;
         }
 
         refs.runChat.disabled = true;
         try {
-          setLoading("Running chat completion...");
+          setLoading("正在调用聊天接口...");
           const payload = await requestJson("/v1/chat/completions", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1305,9 +1319,9 @@
               },
             }),
           });
-          setConsole("Chat completion result", payload, false);
+          setConsole("聊天接口结果", payload, false);
         } catch (error) {
-          setConsole("Chat completion failed", { error: error.message }, true);
+          setConsole("聊天接口失败", { error: error.message }, true);
         } finally {
           refs.runChat.disabled = false;
         }
@@ -1319,13 +1333,13 @@
         const reasoning = refs.responsesReasoning.value;
 
         if (!input) {
-          setConsole("Responses validation", { error: "Input must not be empty." }, true);
+          setConsole("Responses 路由校验", { error: "输入内容不能为空。" }, true);
           return;
         }
 
         refs.runResponses.disabled = true;
         try {
-          setLoading("Running Responses API...");
+          setLoading("正在调用 Responses 路由...");
           const payload = {
             model,
             input,
@@ -1343,9 +1357,9 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
           });
-          setConsole("Responses API result", result, false);
+          setConsole("Responses 路由结果", result, false);
         } catch (error) {
-          setConsole("Responses API failed", { error: error.message }, true);
+          setConsole("Responses 路由失败", { error: error.message }, true);
         } finally {
           refs.runResponses.disabled = false;
         }
@@ -1353,19 +1367,19 @@
 
       async function refreshKeys() {
         try {
-          setLoading("Refreshing key pool...");
+          setLoading("正在刷新密钥池...");
           const payload = await requestJson("/api/keys");
           renderKeyPool(payload.data);
-          setConsole("Key pool", payload, false);
+          setConsole("密钥池", payload, false);
         } catch (error) {
-          setConsole("Key refresh failed", { error: error.message }, true);
+          setConsole("刷新密钥失败", { error: error.message }, true);
         }
       }
 
       async function createKey() {
         refs.createKey.disabled = true;
         try {
-          setLoading("Creating key...");
+          setLoading("正在创建密钥...");
           const payload = await requestJson("/api/keys", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1379,9 +1393,9 @@
           refs.bridgeKeyAuth.value = payload.data.key;
           refs.bridgeKeyName.value = "";
           refs.bridgeKeyCustom.value = "";
-          setConsole("Key created", payload, false);
+          setConsole("密钥已创建", payload, false);
         } catch (error) {
-          setConsole("Key creation failed", { error: error.message }, true);
+          setConsole("创建密钥失败", { error: error.message }, true);
         } finally {
           refs.createKey.disabled = false;
         }
@@ -1390,67 +1404,67 @@
       async function toggleSelectedKey() {
         const keyId = refs.bridgeKeyPicker.value;
         if (!keyId || !state.keys) {
-          setConsole("Toggle key", { error: "Select a key first." }, true);
+          setConsole("切换密钥状态", { error: "请先选择一个密钥。" }, true);
           return;
         }
 
         const current = state.keys.keys.find((item) => item.id === keyId);
         if (!current) {
-          setConsole("Toggle key", { error: "Selected key no longer exists." }, true);
+          setConsole("切换密钥状态", { error: "选中的密钥已经不存在了。" }, true);
           return;
         }
 
         try {
-          setLoading("Updating key...");
+          setLoading("正在更新密钥状态...");
           const payload = await requestJson(`/api/keys/${keyId}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ enabled: !current.enabled }),
           });
           renderKeyPool(payload.keys);
-          setConsole("Key updated", payload, false);
+          setConsole("密钥状态已更新", payload, false);
         } catch (error) {
-          setConsole("Key update failed", { error: error.message }, true);
+          setConsole("更新密钥状态失败", { error: error.message }, true);
         }
       }
 
       async function deleteSelectedKey() {
         const keyId = refs.bridgeKeyPicker.value;
         if (!keyId) {
-          setConsole("Delete key", { error: "Select a key first." }, true);
+          setConsole("删除密钥", { error: "请先选择一个密钥。" }, true);
           return;
         }
 
         try {
-          setLoading("Deleting key...");
+          setLoading("正在删除密钥...");
           const payload = await requestJson(`/api/keys/${keyId}`, { method: "DELETE" });
           renderKeyPool(payload.keys);
-          setConsole("Key deleted", payload, false);
+          setConsole("密钥已删除", payload, false);
         } catch (error) {
-          setConsole("Delete key failed", { error: error.message }, true);
+          setConsole("删除密钥失败", { error: error.message }, true);
         }
       }
 
       async function exportStateSnapshot() {
         try {
-          setLoading("Exporting snapshot...");
+          setLoading("正在导出快照...");
           const payload = await requestJson("/api/admin/export");
           refs.backupJson.value = pretty(payload.data);
-          setConsole("Exported snapshot", payload, false);
+          setConsole("已导出快照", payload, false);
         } catch (error) {
-          setConsole("Export failed", { error: error.message }, true);
+          setConsole("导出快照失败", { error: error.message }, true);
         }
       }
 
       async function importStateSnapshot() {
         const text = refs.backupJson.value.trim();
         if (!text) {
-          setConsole("Import validation", { error: "Paste a snapshot first." }, true);
+          setConsole("导入校验", { error: "请先粘贴一份快照 JSON。" }, true);
           return;
         }
 
         try {
-          setLoading("Importing snapshot...");
+          setLoading("正在导入快照...");
           const data = JSON.parse(text);
           const payload = await requestJson("/api/admin/import", {
             method: "POST",
@@ -1462,22 +1476,22 @@
           });
           renderAccountPool(payload.accounts);
           renderKeyPool(payload.keys);
-          setConsole("Snapshot imported", payload, false);
+          setConsole("快照已导入", payload, false);
         } catch (error) {
-          setConsole("Import failed", { error: error.message }, true);
+          setConsole("导入快照失败", { error: error.message }, true);
         }
       }
 
       async function uploadFile() {
         const file = refs.uploadFile.files[0];
         if (!file) {
-          setConsole("Upload validation", { error: "Choose a file first." }, true);
+          setConsole("上传校验", { error: "请先选择一个文件。" }, true);
           return;
         }
 
         refs.runUpload.disabled = true;
         try {
-          setLoading("Uploading file...");
+          setLoading("正在上传文件...");
           const form = new FormData();
           form.append("file", file);
           form.append("parse", String(refs.parseFile.checked));
@@ -1487,9 +1501,9 @@
             method: "POST",
             body: form,
           });
-          setConsole(`Upload result for ${file.name}`, payload, false);
+          setConsole(`文件 ${file.name} 的上传结果`, payload, false);
         } catch (error) {
-          setConsole("Upload failed", { error: error.message }, true);
+          setConsole("上传文件失败", { error: error.message }, true);
         } finally {
           refs.runUpload.disabled = false;
         }
@@ -1497,13 +1511,13 @@
 
       async function refreshExamples() {
         try {
-          setLoading("Refreshing examples...");
+          setLoading("正在刷新示例...");
           const payload = await requestJson("/api/examples");
           state.examples = payload.data;
           refs.examplesConsole.textContent = pretty(payload.data);
-          setConsole("Examples refreshed", payload, false);
+          setConsole("示例已刷新", payload, false);
         } catch (error) {
-          setConsole("Example refresh failed", { error: error.message }, true);
+          setConsole("刷新示例失败", { error: error.message }, true);
         }
       }
 

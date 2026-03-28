@@ -61,7 +61,7 @@ export function createConfig(env = process.env) {
     upstreamAccept: env.MIMO_UPSTREAM_ACCEPT || upstreamInput.headers.accept || "*/*",
     userAgent: env.MIMO_USER_AGENT || upstreamInput.headers["user-agent"] || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
     timezone: env.MIMO_TIMEZONE || upstreamInput.headers["x-timezone"] || "Asia/Shanghai",
-    defaultModel: env.DEFAULT_MODEL || "mimo-v2-flash-studio",
+    defaultModel: env.DEFAULT_MODEL || "mimo-v2-pro",
     defaultEnableThinking: String(env.DEFAULT_ENABLE_THINKING || "true").toLowerCase() === "true",
     defaultWebSearchMode: env.DEFAULT_WEB_SEARCH_MODE || "disabled",
     maxToolRounds: Number(env.MAX_TOOL_ROUNDS || 4),
@@ -211,13 +211,15 @@ export function createApp(config = createConfig()) {
         }
       }
 
+      const resolvedDefaultModel = resolvePreferredModelId(models, config.defaultModel);
+
       res.json({
         ok: true,
         config: {
           baseUrl: config.mimoBaseUrl,
           hasCookie: Boolean(config.cookie),
           hasPhValue: Boolean(config.phValue),
-          defaultModel: config.defaultModel,
+          defaultModel: resolvedDefaultModel,
           enableExecTool: config.enableExecTool,
           models,
           localTools: getEnabledLocalTools(config),
@@ -720,6 +722,7 @@ async function runCompletionLoop(body, config, auth) {
   const tools = applyToolChoice(baseTools, body.tool_choice);
   const maxRounds = Math.max(1, config.maxToolRounds);
   const autoExecuteLocalTools = Boolean(body.metadata?.auto_execute_local_tools);
+  const conversationId = randomId(32);
   let latestText = "";
 
   for (let round = 0; round < maxRounds; round += 1) {
@@ -733,6 +736,7 @@ async function runCompletionLoop(body, config, auth) {
       multiMedias: latestUser.multiMedias,
       enableThinking: resolveEnableThinking(body, config),
       webSearchMode: resolveWebSearchMode(body, config),
+      conversationId,
     });
 
     latestText = upstream.finalText;
@@ -743,7 +747,7 @@ async function runCompletionLoop(body, config, auth) {
         created: Math.floor(Date.now() / 1000),
         model: body.model || config.defaultModel,
         message: { role: "assistant", content: parsed.content },
-        usage: estimateUsage(prompt, parsed.content),
+        usage: upstream.usage || estimateUsage(prompt, parsed.content),
       };
     }
 
@@ -759,7 +763,7 @@ async function runCompletionLoop(body, config, auth) {
         created: Math.floor(Date.now() / 1000),
         model: body.model || config.defaultModel,
         message: assistantMessage,
-        usage: estimateUsage(prompt, upstream.finalText),
+        usage: upstream.usage || estimateUsage(prompt, upstream.finalText),
       };
     }
 
@@ -831,32 +835,36 @@ async function executeLocalToolCall(config, auth, call) {
   throw new Error(`Unsupported local tool: ${name}`);
 }
 
-async function requestMimoChat(config, auth, { model, temperature, topP, prompt, multiMedias, enableThinking, webSearchMode }) {
+async function requestMimoChat(config, auth, { model, prompt, multiMedias, enableThinking, webSearchMode, conversationId }) {
   const payload = {
-    model,
-    temperature: typeof temperature === "number" ? temperature : 0.8,
-    topP: typeof topP === "number" ? topP : 0.95,
-    systemPrompt: "",
-    webSearchMode,
-    enableThinking,
-    conversationId: crypto.createHash("md5").update(prompt).digest("hex").slice(0, 32),
-    content: prompt,
+    msgId: randomId(32),
+    conversationId: conversationId || randomId(32),
+    query: prompt,
+    isEditedQuery: false,
+    modelConfig: {
+      enableThinking,
+      webSearchStatus: webSearchMode,
+      model,
+    },
     multiMedias: Array.isArray(multiMedias) ? multiMedias : [],
   };
 
   try {
     const response = await rawMimoFetch(config, auth, "POST", "/open-apis/bot/chat", { body: payload });
-    if (!response.ok) {
-      throw new Error(`Upstream chat request failed: HTTP ${response.status}`);
-    }
-
     const text = await response.text();
     const events = parseSSEText(text);
-    const finalEvent = [...events].reverse().find((item) => item && typeof item === "object" && "message" in item) || {};
+    const stream = summarizeMimoSSE(events);
+    if (!response.ok) {
+      throw new Error(stream.error || `Upstream chat request failed: HTTP ${response.status}`);
+    }
+    if (stream.error) {
+      throw new Error(stream.error);
+    }
     recordUpstreamSuccess(config, auth);
     return {
       events,
-      finalText: String(finalEvent.message || ""),
+      finalText: stream.text,
+      usage: stream.usage,
     };
   } catch (error) {
     recordUpstreamFailure(config, auth, error);
@@ -945,18 +953,27 @@ function applyToolChoice(tools, toolChoice) {
   return tools.filter((tool) => tool.function?.name === toolName);
 }
 
-function normalizeModelsFromConfig(botConfig) {
-  const list = botConfig?.modelConfigListNg || [];
+export function normalizeModelsFromConfig(botConfig) {
+  const list = Array.isArray(botConfig?.modelConfigListNg) && botConfig.modelConfigListNg.length
+    ? botConfig.modelConfigListNg
+    : botConfig?.modelConfigList || [];
   return list.map((item) => ({
     id: item.model,
     name: item.name,
     default: Boolean(item.isDefault),
-    intro: item.intro?.zh || item.intro?.en || "",
+    intro: item.intro?.zh || item.intro?.en || item.cnIntro || item.enIntro || "",
     isOmni: Boolean(item.isOmni),
     maxTokens: item.generation?.maxTokens || null,
-    temperature: item.generation?.temperature,
-    topP: item.generation?.topP,
-    features: item.features || {},
+    temperature: item.generation?.temperature ?? item.temperature,
+    topP: item.generation?.topP ?? item.topP,
+    features: item.features || {
+      thinking: item.thinkingDefaultOn ? 1 : 0,
+      webSearch: item.webSearchDefaultStatus === "disabled" ? 0 : 1,
+      scene: {
+        enabled: Array.isArray(item.enabledSceneTypeList) && item.enabledSceneTypeList.length > 0,
+        types: item.enabledSceneTypeList || [],
+      },
+    },
   }));
 }
 
@@ -1132,18 +1149,26 @@ function roughTokenCount(text) {
   return Math.max(1, Math.ceil(String(text || "").length / 4));
 }
 
-function parseSSEText(text) {
+export function parseSSEText(text) {
   return String(text || "")
     .split(/\n\n+/)
     .map((block) => block.trim())
     .filter(Boolean)
-    .map((block) => block.split(/\n/).filter((line) => line.startsWith("data:")).map((line) => line.replace(/^data:\s*/, "")).join("\n"))
-    .filter(Boolean)
-    .map((data) => {
+    .map((block) => {
+      const event = block.split(/\n/).find((line) => line.startsWith("event:"))?.replace(/^event:\s*/, "") || "message";
+      const data = block
+        .split(/\n/)
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.replace(/^data:\s*/, ""))
+        .join("\n");
+      return { event, raw: data };
+    })
+    .filter((item) => item.raw)
+    .map((item) => {
       try {
-        return JSON.parse(data);
+        return { ...item, data: JSON.parse(item.raw) };
       } catch {
-        return { raw: data };
+        return { ...item, data: item.raw };
       }
     });
 }
@@ -1157,6 +1182,34 @@ function splitForStreaming(text) {
     result.push(clean.slice(i, i + size));
   }
   return result;
+}
+
+export function summarizeMimoSSE(events) {
+  const text = [];
+  let usage = null;
+  let error = "";
+
+  for (const event of events || []) {
+    if (event.event === "message" && event.data?.type === "text") {
+      text.push(String(event.data.content || ""));
+    }
+    if (event.event === "usage" && event.data && typeof event.data === "object") {
+      usage = {
+        prompt_tokens: Number(event.data.promptTokens || 0),
+        completion_tokens: Number(event.data.completionTokens || 0),
+        total_tokens: Number(event.data.totalTokens || 0),
+      };
+    }
+    if (event.event === "error") {
+      error = event.data?.message || event.data?.msg || event.raw || error;
+    }
+  }
+
+  return {
+    text: text.join(""),
+    usage,
+    error: String(error || "").trim(),
+  };
 }
 
 function stripThinkTags(text) {
@@ -1203,6 +1256,17 @@ function extractBearerToken(headerValue) {
 
 function randomId(length = 16) {
   return crypto.randomBytes(Math.ceil(length / 2)).toString("hex").slice(0, length);
+}
+
+function resolvePreferredModelId(models, preferredId) {
+  const list = Array.isArray(models) ? models : [];
+  if (!list.length) {
+    return preferredId;
+  }
+  if (preferredId && list.some((item) => item.id === preferredId)) {
+    return preferredId;
+  }
+  return list.find((item) => item.default)?.id || list[0].id;
 }
 
 function recordUpstreamSuccess(config, auth) {

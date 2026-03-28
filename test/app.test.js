@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 import { mkdtempSync, rmSync } from "node:fs";
-import { createApp, createConfig } from "../src/app.js";
+import { createApp, createConfig, normalizeModelsFromConfig, parseSSEText, summarizeMimoSSE } from "../src/app.js";
 
 const CURL_SAMPLE = [
   "curl 'https://aistudio.xiaomimimo.com/open-apis/chat/conversation/list?xiaomichatbot_ph=quoted%2Btoken%3D%3D' \\",
@@ -61,6 +61,7 @@ test("GET /health returns ok", async () => {
 test("createConfig defaults to a deployment-safe host and allows overrides", () => {
   const defaults = createConfig({});
   assert.equal(defaults.host, "0.0.0.0");
+  assert.equal(defaults.defaultModel, "mimo-v2-pro");
 
   const overridden = createConfig({ HOST: "127.0.0.1", PORT: "4321" });
   assert.equal(overridden.host, "127.0.0.1");
@@ -70,14 +71,14 @@ test("createConfig defaults to a deployment-safe host and allows overrides", () 
 test("createConfig normalizes quoted ph cookies and browser-like upstream defaults", () => {
   const config = createConfig({
     MIMO_BASE_URL: "https://aistudio.xiaomimimo.com/",
-    MIMO_COOKIE: 'serviceToken=abc; userId=1; xiaomichatbot_ph="8kg+LZ2RJ/fl+h7kzqHT0A=="',
+    MIMO_COOKIE: 'serviceToken=abc; userId=1; xiaomichatbot_ph="quoted+ph=="',
   });
 
   assert.equal(config.mimoBaseUrl, "https://aistudio.xiaomimimo.com");
   assert.equal(config.mimoOrigin, "https://aistudio.xiaomimimo.com");
   assert.equal(config.mimoReferer, "https://aistudio.xiaomimimo.com/");
   assert.equal(config.acceptLanguage, "system");
-  assert.equal(config.phValue, "8kg+LZ2RJ/fl+h7kzqHT0A==");
+  assert.equal(config.phValue, "quoted+ph==");
   assert.match(config.userAgent, /Mozilla\/5\.0/);
 });
 
@@ -97,16 +98,77 @@ test("createConfig extracts cookie and headers from full curl snippets", () => {
   assert.equal(config.userAgent, "Mozilla/5.0 Test Browser");
 });
 
+test("normalizeModelsFromConfig supports both new and legacy MiMo bot config shapes", () => {
+  const ngModels = normalizeModelsFromConfig({
+    modelConfigListNg: [
+      {
+        name: "MiMo-V2-Pro",
+        model: "mimo-v2-pro",
+        isDefault: true,
+        intro: { zh: "旗舰模型" },
+        generation: { temperature: 0.7, topP: 0.9, maxTokens: 1234 },
+        features: { webSearch: 0 },
+      },
+    ],
+  });
+  assert.equal(ngModels[0].id, "mimo-v2-pro");
+  assert.equal(ngModels[0].default, true);
+  assert.equal(ngModels[0].intro, "旗舰模型");
+
+  const legacyModels = normalizeModelsFromConfig({
+    modelConfigList: [
+      {
+        name: "mimo-v2-pro",
+        model: "mimo-v2-pro",
+        cnIntro: "适合深度思考",
+        temperature: 0.8,
+        topP: 0.95,
+        thinkingDefaultOn: true,
+        webSearchDefaultStatus: "disabled",
+        enabledSceneTypeList: [],
+      },
+    ],
+  });
+  assert.equal(legacyModels[0].id, "mimo-v2-pro");
+  assert.equal(legacyModels[0].intro, "适合深度思考");
+  assert.equal(legacyModels[0].temperature, 0.8);
+});
+
+test("summarizeMimoSSE joins message chunks and extracts usage", () => {
+  const events = parseSSEText([
+    "id:test",
+    "event:message",
+    'data:{"type":"text","content":"你好"}',
+    "",
+    "id:test",
+    "event:message",
+    'data:{"type":"text","content":"，世界"}',
+    "",
+    "id:test",
+    "event:usage",
+    'data:{"promptTokens":12,"completionTokens":3,"totalTokens":15}',
+  ].join("\n"));
+
+  const summary = summarizeMimoSSE(events);
+  assert.equal(summary.text, "你好，世界");
+  assert.deepEqual(summary.usage, {
+    prompt_tokens: 12,
+    completion_tokens: 3,
+    total_tokens: 15,
+  });
+  assert.equal(summary.error, "");
+});
+
 test("GET / serves the dashboard", async () => {
   const response = await fetch(`${baseUrl}/`);
   assert.equal(response.status, 200);
 
   const html = await response.text();
-  assert.match(html, /Workspace Tabs/);
+  assert.match(html, /工作区导航/);
   assert.match(html, /data-tab-target="accounts"/);
-  assert.match(html, /Preview Parse/);
-  assert.match(html, /Conversation Explorer/);
-  assert.match(html, /Responses Lab/);
+  assert.match(html, /预览解析/);
+  assert.match(html, /会话浏览器/);
+  assert.match(html, /Responses 路由调试/);
 });
 
 test("POST /v1/chat/completions validates empty messages", async () => {
