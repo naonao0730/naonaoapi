@@ -5,6 +5,18 @@ import path from "node:path";
 import { mkdtempSync, rmSync } from "node:fs";
 import { createApp, createConfig } from "../src/app.js";
 
+const CURL_SAMPLE = [
+  "curl 'https://aistudio.xiaomimimo.com/open-apis/chat/conversation/list?xiaomichatbot_ph=quoted%2Btoken%3D%3D' \\",
+  "  -H 'accept: */*' \\",
+  "  -H 'accept-language: system' \\",
+  "  -H 'origin: https://aistudio.xiaomimimo.com' \\",
+  "  -H 'referer: https://aistudio.xiaomimimo.com/' \\",
+  "  -H 'user-agent: Mozilla/5.0 Test Browser' \\",
+  "  -H 'x-timezone: Asia/Shanghai' \\",
+  "  -b 'serviceToken=\"abc123\"; userId=1; xiaomichatbot_ph=\"quoted+token==\"' \\",
+  "  --data-raw '{\"pageInfo\":{\"pageNum\":1,\"pageSize\":20}}'",
+].join("\n");
+
 let server;
 let baseUrl;
 let tempDir;
@@ -67,6 +79,22 @@ test("createConfig normalizes quoted ph cookies and browser-like upstream defaul
   assert.equal(config.acceptLanguage, "system");
   assert.equal(config.phValue, "8kg+LZ2RJ/fl+h7kzqHT0A==");
   assert.match(config.userAgent, /Mozilla\/5\.0/);
+});
+
+test("createConfig extracts cookie and headers from full curl snippets", () => {
+  const config = createConfig({
+    MIMO_BASE_URL: "https://aistudio.xiaomimimo.com/",
+    MIMO_COOKIE: CURL_SAMPLE,
+  });
+
+  assert.equal(config.cookie, 'serviceToken="abc123"; userId=1; xiaomichatbot_ph="quoted+token=="');
+  assert.equal(config.phValue, "quoted+token==");
+  assert.equal(config.acceptLanguage, "system");
+  assert.equal(config.upstreamAccept, "*/*");
+  assert.equal(config.timezone, "Asia/Shanghai");
+  assert.equal(config.mimoOrigin, "https://aistudio.xiaomimimo.com");
+  assert.equal(config.mimoReferer, "https://aistudio.xiaomimimo.com/");
+  assert.equal(config.userAgent, "Mozilla/5.0 Test Browser");
 });
 
 test("GET / serves the dashboard", async () => {
@@ -153,6 +181,31 @@ test("account import strips quotes from xiaomichatbot_ph cookie values", async (
   const exported = await exportResponse.json();
   const stored = exported.data.accounts.accounts.find((item) => item.name === "quoted-ph");
   assert.ok(stored);
+  assert.equal(stored.phValue, "quoted+token==");
+});
+
+test("account creation accepts full curl snippets and extracts the cookie", async () => {
+  const createResponse = await fetch(`${baseUrl}/api/accounts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: "curl-import",
+      cookie: CURL_SAMPLE,
+      enabled: true,
+    }),
+  });
+
+  assert.equal(createResponse.status, 200);
+  const created = await createResponse.json();
+  assert.equal(created.ok, true);
+  assert.equal(created.data.name, "curl-import");
+
+  const exportResponse = await fetch(`${baseUrl}/api/admin/export`);
+  assert.equal(exportResponse.status, 200);
+  const exported = await exportResponse.json();
+  const stored = exported.data.accounts.accounts.find((item) => item.name === "curl-import");
+  assert.ok(stored);
+  assert.equal(stored.cookie, 'serviceToken="abc123"; userId=1; xiaomichatbot_ph="quoted+token=="');
   assert.equal(stored.phValue, "quoted+token==");
 });
 

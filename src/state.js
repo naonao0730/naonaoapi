@@ -55,16 +55,17 @@ export function getAccountsView(state, config) {
 }
 
 export function createAccount(state, input = {}) {
-  const cookie = String(input.cookie || "").trim();
+  const parsedInput = parseCredentialInput(input.cookie || "");
+  const cookie = parsedInput.cookie;
   if (!cookie) {
-    throw new Error("cookie must not be empty");
+    throw new Error(parsedInput.source === "curl" ? "No cookie detected in pasted cURL command." : "cookie must not be empty");
   }
 
   const account = {
     id: `acct_${randomId(12)}`,
     name: String(input.name || "").trim() || `Account ${state.accountsStore.accounts.length + 1}`,
     cookie,
-    phValue: normalizeCookieValue(input.phValue) || extractCookieValue(cookie, "xiaomichatbot_ph") || "",
+    phValue: normalizeCookieValue(input.phValue) || parsedInput.phValue || extractCookieValue(cookie, "xiaomichatbot_ph") || "",
     enabled: input.enabled !== false,
     notes: String(input.notes || "").trim(),
     createdAt: new Date().toISOString(),
@@ -97,13 +98,14 @@ export function patchAccount(state, accountId, input = {}) {
     account.name = String(input.name || "").trim() || account.name;
   }
   if (input.cookie !== undefined) {
-    const cookie = String(input.cookie || "").trim();
+    const parsedInput = parseCredentialInput(input.cookie || "");
+    const cookie = parsedInput.cookie;
     if (!cookie) {
-      throw new Error("cookie must not be empty");
+      throw new Error(parsedInput.source === "curl" ? "No cookie detected in pasted cURL command." : "cookie must not be empty");
     }
     account.cookie = cookie;
     if (input.phValue === undefined) {
-      account.phValue = extractCookieValue(cookie, "xiaomichatbot_ph") || account.phValue || "";
+      account.phValue = parsedInput.phValue || extractCookieValue(cookie, "xiaomichatbot_ph") || account.phValue || "";
     }
   }
   if (input.phValue !== undefined) {
@@ -362,6 +364,45 @@ export function extractCookieValue(cookieText, name) {
   return "";
 }
 
+export function parseCredentialInput(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return {
+      source: "empty",
+      raw,
+      cookie: "",
+      phValue: "",
+      url: "",
+      headers: {},
+    };
+  }
+
+  const maybeCurl = raw.replace(/\\\r?\n\s*/g, " ").trim();
+  if (!/^curl\b/i.test(maybeCurl)) {
+    const cookie = normalizeRawCookieText(raw);
+    return {
+      source: "cookie",
+      raw,
+      cookie,
+      phValue: extractCookieValue(cookie, "xiaomichatbot_ph"),
+      url: "",
+      headers: {},
+    };
+  }
+
+  const parsedCurl = parseCurlCredentialInput(maybeCurl);
+  return {
+    source: "curl",
+    raw,
+    cookie: normalizeRawCookieText(parsedCurl.cookie || parsedCurl.headers.cookie || ""),
+    phValue: normalizeCookieValue(extractQueryParamValue(parsedCurl.url, "xiaomichatbot_ph"))
+      || extractCookieValue(parsedCurl.cookie || parsedCurl.headers.cookie || "", "xiaomichatbot_ph")
+      || "",
+    url: parsedCurl.url,
+    headers: parsedCurl.headers,
+  };
+}
+
 export function normalizeCookieValue(value) {
   const text = String(value || "").trim();
   if (!text) return "";
@@ -373,6 +414,15 @@ export function normalizeCookieValue(value) {
 
 function getEnabledAccounts(state) {
   return state.accountsStore.accounts.filter((item) => item.enabled && item.cookie);
+}
+
+function normalizeRawCookieText(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (/^cookie\s*:/i.test(text)) {
+    return text.replace(/^cookie\s*:/i, "").trim();
+  }
+  return text;
 }
 
 function getAvailableAccounts(state, config, now = Date.now()) {
@@ -433,24 +483,28 @@ function normalizeAccountsStore(value, config) {
     routingStrategy: ["round_robin", "single"].includes(value?.routingStrategy) ? value.routingStrategy : config.accountRoutingStrategy,
     activeAccountId: typeof value?.activeAccountId === "string" ? value.activeAccountId : null,
     cursor: Number.isInteger(value?.cursor) ? value.cursor : 0,
-    accounts: Array.isArray(value?.accounts) ? value.accounts.map((item) => ({
-      id: item.id || `acct_${randomId(12)}`,
-      name: item.name || "Unnamed Account",
-      cookie: item.cookie || "",
-      phValue: normalizeCookieValue(item.phValue) || extractCookieValue(item.cookie || "", "xiaomichatbot_ph") || "",
-      enabled: item.enabled !== false,
-      notes: item.notes || "",
-      createdAt: item.createdAt || new Date().toISOString(),
-      updatedAt: item.updatedAt || item.createdAt || new Date().toISOString(),
-      lastUsedAt: item.lastUsedAt || null,
-      lastCheckedAt: item.lastCheckedAt || null,
-      lastSuccessAt: item.lastSuccessAt || null,
-      lastFailureAt: item.lastFailureAt || null,
-      lastError: item.lastError || "",
-      successCount: Number(item.successCount || 0),
-      failureCount: Number(item.failureCount || 0),
-      consecutiveFailures: Number(item.consecutiveFailures || 0),
-    })) : [],
+    accounts: Array.isArray(value?.accounts) ? value.accounts.map((item) => {
+      const parsedInput = parseCredentialInput(item.cookie || "");
+      const cookie = parsedInput.cookie;
+      return {
+        id: item.id || `acct_${randomId(12)}`,
+        name: item.name || "Unnamed Account",
+        cookie,
+        phValue: normalizeCookieValue(item.phValue) || parsedInput.phValue || extractCookieValue(cookie || "", "xiaomichatbot_ph") || "",
+        enabled: item.enabled !== false,
+        notes: item.notes || "",
+        createdAt: item.createdAt || new Date().toISOString(),
+        updatedAt: item.updatedAt || item.createdAt || new Date().toISOString(),
+        lastUsedAt: item.lastUsedAt || null,
+        lastCheckedAt: item.lastCheckedAt || null,
+        lastSuccessAt: item.lastSuccessAt || null,
+        lastFailureAt: item.lastFailureAt || null,
+        lastError: item.lastError || "",
+        successCount: Number(item.successCount || 0),
+        failureCount: Number(item.failureCount || 0),
+        consecutiveFailures: Number(item.consecutiveFailures || 0),
+      };
+    }) : [],
   };
 }
 
@@ -525,4 +579,119 @@ function maskValue(value, start = 8, end = 4) {
 
 function randomId(length = 16) {
   return crypto.randomBytes(Math.ceil(length / 2)).toString("hex").slice(0, length);
+}
+
+function parseCurlCredentialInput(text) {
+  const tokens = tokenizeCommand(text);
+  const headers = {};
+  let cookie = "";
+  let url = "";
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if ((token === "-b" || token === "--cookie") && tokens[index + 1]) {
+      cookie = tokens[index + 1];
+      index += 1;
+      continue;
+    }
+    if ((token === "-H" || token === "--header") && tokens[index + 1]) {
+      const headerLine = tokens[index + 1];
+      const separatorIndex = headerLine.indexOf(":");
+      if (separatorIndex !== -1) {
+        const name = headerLine.slice(0, separatorIndex).trim().toLowerCase();
+        const value = headerLine.slice(separatorIndex + 1).trim();
+        headers[name] = value;
+      }
+      index += 1;
+      continue;
+    }
+    if ((token === "--url" || token === "--request-target") && tokens[index + 1]) {
+      url = tokens[index + 1];
+      index += 1;
+      continue;
+    }
+    if (!url && /^https?:\/\//i.test(token)) {
+      url = token;
+    }
+  }
+
+  return { cookie, url, headers };
+}
+
+function tokenizeCommand(text) {
+  const tokens = [];
+  let current = "";
+  let quote = "";
+
+  const pushCurrent = () => {
+    if (current) {
+      tokens.push(current);
+      current = "";
+    }
+  };
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+
+    if (quote === "single") {
+      if (char === "'") {
+        quote = "";
+      } else {
+        current += char;
+      }
+      continue;
+    }
+
+    if (quote === "double") {
+      if (char === "\"") {
+        quote = "";
+      } else if (char === "\\" && index + 1 < text.length) {
+        current += text[index + 1];
+        index += 1;
+      } else {
+        current += char;
+      }
+      continue;
+    }
+
+    if (/\s/.test(char)) {
+      pushCurrent();
+      continue;
+    }
+
+    if (char === "'") {
+      quote = "single";
+      continue;
+    }
+
+    if (char === "\"") {
+      quote = "double";
+      continue;
+    }
+
+    if (char === "\\" && index + 1 < text.length) {
+      const next = text[index + 1];
+      if (next === "\n" || next === "\r") {
+        index += 1;
+        continue;
+      }
+      current += next;
+      index += 1;
+      continue;
+    }
+
+    current += char;
+  }
+
+  pushCurrent();
+  return tokens;
+}
+
+function extractQueryParamValue(urlText, key) {
+  try {
+    const url = new URL(String(urlText || ""));
+    return url.searchParams.get(key) || "";
+  } catch {
+    return "";
+  }
 }

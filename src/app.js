@@ -24,6 +24,7 @@ import {
   patchAccount,
   patchApiKey,
   pickUpstreamAccount,
+  parseCredentialInput,
   recordAccountFailure,
   recordAccountSuccess,
   setActiveAccount,
@@ -47,18 +48,19 @@ loadEnv(path.join(ROOT, ".env"));
 
 export function createConfig(env = process.env) {
   const mimoBaseUrl = (env.MIMO_BASE_URL || "https://aistudio.xiaomimimo.com").replace(/\/$/, "");
+  const upstreamInput = parseCredentialInput(env.MIMO_COOKIE || "");
   return {
     host: env.HOST || "0.0.0.0",
     port: Number(env.PORT || 3000),
     mimoBaseUrl,
-    mimoOrigin: env.MIMO_ORIGIN || mimoBaseUrl,
-    mimoReferer: env.MIMO_REFERER || `${mimoBaseUrl}/`,
-    cookie: env.MIMO_COOKIE || "",
-    phValue: normalizeCookieValue(env.MIMO_PH_VALUE) || extractCookieValue(env.MIMO_COOKIE || "", "xiaomichatbot_ph") || "",
-    acceptLanguage: env.MIMO_ACCEPT_LANGUAGE || "system",
-    upstreamAccept: env.MIMO_UPSTREAM_ACCEPT || "*/*",
-    userAgent: env.MIMO_USER_AGENT || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
-    timezone: env.MIMO_TIMEZONE || "Asia/Shanghai",
+    mimoOrigin: env.MIMO_ORIGIN || upstreamInput.headers.origin || mimoBaseUrl,
+    mimoReferer: env.MIMO_REFERER || upstreamInput.headers.referer || `${mimoBaseUrl}/`,
+    cookie: upstreamInput.cookie,
+    phValue: normalizeCookieValue(env.MIMO_PH_VALUE) || upstreamInput.phValue || extractCookieValue(upstreamInput.cookie || "", "xiaomichatbot_ph") || "",
+    acceptLanguage: env.MIMO_ACCEPT_LANGUAGE || upstreamInput.headers["accept-language"] || "system",
+    upstreamAccept: env.MIMO_UPSTREAM_ACCEPT || upstreamInput.headers.accept || "*/*",
+    userAgent: env.MIMO_USER_AGENT || upstreamInput.headers["user-agent"] || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+    timezone: env.MIMO_TIMEZONE || upstreamInput.headers["x-timezone"] || "Asia/Shanghai",
     defaultModel: env.DEFAULT_MODEL || "mimo-v2-flash-studio",
     defaultEnableThinking: String(env.DEFAULT_ENABLE_THINKING || "true").toLowerCase() === "true",
     defaultWebSearchMode: env.DEFAULT_WEB_SEARCH_MODE || "disabled",
