@@ -64,7 +64,9 @@ export function createConfig(env = process.env) {
     defaultModel: env.DEFAULT_MODEL || "mimo-v2-pro",
     defaultEnableThinking: String(env.DEFAULT_ENABLE_THINKING || "true").toLowerCase() === "true",
     defaultWebSearchMode: env.DEFAULT_WEB_SEARCH_MODE || "disabled",
+    defaultAutoExecuteLocalTools: String(env.DEFAULT_AUTO_EXECUTE_LOCAL_TOOLS || "true").toLowerCase() === "true",
     maxToolRounds: Number(env.MAX_TOOL_ROUNDS || 4),
+    streamKeepAliveMs: Number(env.STREAM_KEEPALIVE_MS || 15000),
     enableExecTool: String(env.ENABLE_EXEC_TOOL || "false").toLowerCase() === "true",
     execToolCwd: env.EXEC_TOOL_CWD || ROOT,
     accountStoreFile: env.ACCOUNT_STORE_FILE || path.join(ROOT, "data", "accounts.json"),
@@ -238,6 +240,7 @@ export function createApp(config = createConfig()) {
           hasPhValue: Boolean(config.phValue),
           defaultModel: resolvedDefaultModel,
           enableExecTool: config.enableExecTool,
+          defaultAutoExecuteLocalTools: config.defaultAutoExecuteLocalTools,
           models,
           localTools: getEnabledLocalTools(config),
           upstreamReady: hasUpstreamCredentials(config, state),
@@ -476,6 +479,7 @@ export function createApp(config = createConfig()) {
         top_p: requestBody.top_p,
         max_tokens: requestBody.max_output_tokens,
         metadata: requestBody.metadata,
+        auto_execute_local_tools: requestBody.auto_execute_local_tools,
         enable_thinking: requestBody.reasoning?.effort ? true : undefined,
       }, config, auth);
 
@@ -664,163 +668,191 @@ async function handleStreamingChatCompletion(res, body, config, auth) {
   const model = body.model || config.defaultModel;
   const completionId = `chatcmpl_${randomId(24)}`;
   const created = Math.floor(Date.now() / 1000);
-
-  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
-  res.setHeader("Cache-Control", "no-cache, no-transform");
-  res.setHeader("Connection", "keep-alive");
+  configureSseResponse(res);
+  const stopKeepAlive = startSseKeepAlive(res, config.streamKeepAliveMs);
 
   const sendChunk = (payload) => {
     res.write(`data: ${JSON.stringify(payload)}\n\n`);
   };
 
-  sendChunk({
-    id: completionId,
-    object: "chat.completion.chunk",
-    created,
-    model,
-    choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }],
-  });
-
-  const result = await runCompletionLoop(body, config, auth);
-
-  if (result.message.tool_calls?.length) {
-    result.message.tool_calls.forEach((call, index) => {
-      sendChunk({
-        id: completionId,
-        object: "chat.completion.chunk",
-        created,
-        model,
-        choices: [{
-          index: 0,
-          delta: {
-            tool_calls: [{
-              index,
-              id: call.id,
-              type: "function",
-              function: {
-                name: call.function.name,
-                arguments: call.function.arguments,
-              },
-            }],
-          },
-          finish_reason: null,
-        }],
-      });
+  try {
+    sendChunk({
+      id: completionId,
+      object: "chat.completion.chunk",
+      created,
+      model,
+      choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }],
     });
-  } else {
-    const chunks = splitForStreaming(result.message.content || "");
-    for (const part of chunks) {
-      sendChunk({
-        id: completionId,
-        object: "chat.completion.chunk",
-        created,
-        model,
-        choices: [{ index: 0, delta: { content: part }, finish_reason: null }],
-      });
-    }
-  }
 
-  sendChunk({
-    id: completionId,
-    object: "chat.completion.chunk",
-    created,
-    model,
-    choices: [{ index: 0, delta: {}, finish_reason: result.message.tool_calls?.length ? "tool_calls" : "stop" }],
-  });
-  res.write("data: [DONE]\n\n");
-  res.end();
+    const result = await runCompletionLoop(body, config, auth);
+
+    if (result.message.tool_calls?.length) {
+      result.message.tool_calls.forEach((call, index) => {
+        sendChunk({
+          id: completionId,
+          object: "chat.completion.chunk",
+          created,
+          model,
+          choices: [{
+            index: 0,
+            delta: {
+              tool_calls: [{
+                index,
+                id: call.id,
+                type: "function",
+                function: {
+                  name: call.function.name,
+                  arguments: call.function.arguments,
+                },
+              }],
+            },
+            finish_reason: null,
+          }],
+        });
+      });
+    } else {
+      const chunks = splitForStreaming(result.message.content || "");
+      for (const part of chunks) {
+        sendChunk({
+          id: completionId,
+          object: "chat.completion.chunk",
+          created,
+          model,
+          choices: [{ index: 0, delta: { content: part }, finish_reason: null }],
+        });
+      }
+    }
+
+    sendChunk({
+      id: completionId,
+      object: "chat.completion.chunk",
+      created,
+      model,
+      choices: [{ index: 0, delta: {}, finish_reason: result.message.tool_calls?.length ? "tool_calls" : "stop" }],
+    });
+    res.write("data: [DONE]\n\n");
+  } catch (error) {
+    sendChunk({
+      error: {
+        message: formatError(error),
+        type: "server_error",
+      },
+    });
+    res.write("data: [DONE]\n\n");
+  } finally {
+    stopKeepAlive();
+    res.end();
+  }
 }
 
 async function handleStreamingResponses(res, body, config, auth) {
   const createdAt = Math.floor(Date.now() / 1000);
-  const result = await runCompletionLoop({
-    model: body.model,
-    messages: body.messages,
-    tools: body.tools,
-    tool_choice: body.tool_choice,
-    temperature: body.temperature,
-    top_p: body.top_p,
-    max_tokens: body.max_output_tokens,
-    metadata: body.metadata,
-    enable_thinking: body.reasoning?.effort ? true : undefined,
-  }, config, auth);
-  const responsePayload = toResponsesApiResponse(result, body, config);
-
-  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
-  res.setHeader("Cache-Control", "no-cache, no-transform");
-  res.setHeader("Connection", "keep-alive");
+  const model = body.model || config.defaultModel;
+  const responseId = `resp_${randomId(24)}`;
+  configureSseResponse(res);
+  const stopKeepAlive = startSseKeepAlive(res, config.streamKeepAliveMs);
 
   const sendEvent = (type, data) => {
     res.write(`event: ${type}\n`);
     res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`);
   };
 
-  sendEvent("response.created", responsePayload);
+  const inProgressResponse = {
+    id: responseId,
+    object: "response",
+    created_at: createdAt,
+    status: "in_progress",
+    model,
+    output: [],
+    usage: null,
+    metadata: body.metadata || {},
+  };
+
+  sendEvent("response.created", inProgressResponse);
   sendEvent("response.in_progress", {
-    response: {
-      id: responsePayload.id,
-      object: "response",
-      created_at: createdAt,
-      status: "in_progress",
-      model: responsePayload.model,
-    },
+    response: inProgressResponse,
   });
 
-  responsePayload.output.forEach((item, index) => {
-    sendEvent("response.output_item.added", {
-      output_index: index,
-      item,
-    });
+  try {
+    const result = await runCompletionLoop({
+      model: body.model,
+      messages: body.messages,
+      tools: body.tools,
+      tool_choice: body.tool_choice,
+      temperature: body.temperature,
+      top_p: body.top_p,
+      max_tokens: body.max_output_tokens,
+      metadata: body.metadata,
+      auto_execute_local_tools: body.auto_execute_local_tools,
+      enable_thinking: body.reasoning?.effort ? true : undefined,
+    }, config, auth);
+    const responsePayload = toResponsesApiResponse(result, body, config, responseId);
 
-    if (item.type === "message") {
-      const textItem = item.content?.[0] || { type: "output_text", text: "" };
-      sendEvent("response.content_part.added", {
+    responsePayload.output.forEach((item, index) => {
+      sendEvent("response.output_item.added", {
         output_index: index,
-        content_index: 0,
-        part: textItem,
+        item,
       });
-      for (const chunk of splitForStreaming(textItem.text || "")) {
-        sendEvent("response.output_text.delta", {
+
+      if (item.type === "message") {
+        const textItem = item.content?.[0] || { type: "output_text", text: "" };
+        sendEvent("response.content_part.added", {
           output_index: index,
           content_index: 0,
-          delta: chunk,
+          part: textItem,
+        });
+        for (const chunk of splitForStreaming(textItem.text || "")) {
+          sendEvent("response.output_text.delta", {
+            output_index: index,
+            content_index: 0,
+            delta: chunk,
+          });
+        }
+        sendEvent("response.output_text.done", {
+          output_index: index,
+          content_index: 0,
+          text: textItem.text || "",
+        });
+        sendEvent("response.content_part.done", {
+          output_index: index,
+          content_index: 0,
+          part: textItem,
         });
       }
-      sendEvent("response.output_text.done", {
-        output_index: index,
-        content_index: 0,
-        text: textItem.text || "",
-      });
-      sendEvent("response.content_part.done", {
-        output_index: index,
-        content_index: 0,
-        part: textItem,
-      });
-    }
 
-    if (item.type === "function_call") {
-      for (const chunk of splitForStreaming(item.arguments || "")) {
-        sendEvent("response.function_call_arguments.delta", {
+      if (item.type === "function_call") {
+        for (const chunk of splitForStreaming(item.arguments || "")) {
+          sendEvent("response.function_call_arguments.delta", {
+            output_index: index,
+            item_id: item.id,
+            delta: chunk,
+          });
+        }
+        sendEvent("response.function_call_arguments.done", {
           output_index: index,
           item_id: item.id,
-          delta: chunk,
+          arguments: item.arguments || "",
         });
       }
-      sendEvent("response.function_call_arguments.done", {
+
+      sendEvent("response.output_item.done", {
         output_index: index,
-        item_id: item.id,
-        arguments: item.arguments || "",
+        item,
       });
-    }
-
-    sendEvent("response.output_item.done", {
-      output_index: index,
-      item,
     });
-  });
 
-  sendEvent("response.completed", responsePayload);
-  res.end();
+    sendEvent("response.completed", responsePayload);
+  } catch (error) {
+    sendEvent("error", {
+      error: {
+        message: formatError(error),
+        type: "server_error",
+      },
+    });
+  } finally {
+    stopKeepAlive();
+    res.end();
+  }
 }
 
 async function runCompletionLoop(body, config, auth) {
@@ -829,7 +861,7 @@ async function runCompletionLoop(body, config, auth) {
   const baseTools = providedTools.length ? providedTools : getEnabledLocalTools(config);
   const tools = applyToolChoice(baseTools, body.tool_choice);
   const maxRounds = Math.max(1, config.maxToolRounds);
-  const autoExecuteLocalTools = Boolean(body.metadata?.auto_execute_local_tools);
+  const autoExecuteLocalTools = resolveAutoExecuteLocalTools(body, config);
   const conversationId = randomId(32);
   let latestText = "";
 
@@ -1309,7 +1341,7 @@ function hasBridgeMessageContent(message) {
   return Boolean(normalizeMessageContent(message.content).trim());
 }
 
-function toResponsesApiResponse(result, body, config) {
+function toResponsesApiResponse(result, body, config, responseId = `resp_${randomId(24)}`) {
   const output = result.message.tool_calls?.length
     ? result.message.tool_calls.map((call) => ({
         id: `fc_${call.id}`,
@@ -1328,7 +1360,7 @@ function toResponsesApiResponse(result, body, config) {
       }];
 
   return {
-    id: `resp_${randomId(24)}`,
+    id: responseId,
     object: "response",
     created_at: result.created || Math.floor(Date.now() / 1000),
     status: "completed",
@@ -1403,6 +1435,31 @@ function splitForStreaming(text) {
   return result;
 }
 
+function configureSseResponse(res) {
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders?.();
+}
+
+function startSseKeepAlive(res, intervalMs) {
+  const safeInterval = Math.max(1000, Number(intervalMs) || 15000);
+  const timer = setInterval(() => {
+    if (res.writableEnded) {
+      clearInterval(timer);
+      return;
+    }
+    try {
+      res.write(": keep-alive\n\n");
+    } catch {
+      clearInterval(timer);
+    }
+  }, safeInterval);
+
+  timer.unref?.();
+  return () => clearInterval(timer);
+}
+
 export function summarizeMimoSSE(events) {
   const text = [];
   let usage = null;
@@ -1433,6 +1490,26 @@ export function summarizeMimoSSE(events) {
 
 function stripThinkTags(text) {
   return String(text || "").replace(/<think>\0?[\s\S]*?<\/think>\0?/g, "").trim();
+}
+
+function normalizeOptionalBoolean(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true") return true;
+    if (normalized === "false") return false;
+  }
+  return undefined;
+}
+
+export function resolveAutoExecuteLocalTools(body, config) {
+  const explicitFlag = normalizeOptionalBoolean(body?.auto_execute_local_tools);
+  if (explicitFlag !== undefined) return explicitFlag;
+
+  const metadataFlag = normalizeOptionalBoolean(body?.metadata?.auto_execute_local_tools);
+  if (metadataFlag !== undefined) return metadataFlag;
+
+  return Boolean(config.defaultAutoExecuteLocalTools);
 }
 
 function resolveEnableThinking(body, config) {

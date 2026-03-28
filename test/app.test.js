@@ -10,6 +10,7 @@ import {
   normalizeModelsFromConfig,
   parseSSEText,
   normalizeTools,
+  resolveAutoExecuteLocalTools,
   responsesInputToMessages,
   resolveUpstreamModelId,
   summarizeMimoSSE,
@@ -72,10 +73,20 @@ test("createConfig defaults to a deployment-safe host and allows overrides", () 
   const defaults = createConfig({});
   assert.equal(defaults.host, "0.0.0.0");
   assert.equal(defaults.defaultModel, "mimo-v2-pro");
+  assert.equal(defaults.defaultAutoExecuteLocalTools, true);
 
-  const overridden = createConfig({ HOST: "127.0.0.1", PORT: "4321" });
+  const overridden = createConfig({ HOST: "127.0.0.1", PORT: "4321", DEFAULT_AUTO_EXECUTE_LOCAL_TOOLS: "false" });
   assert.equal(overridden.host, "127.0.0.1");
   assert.equal(overridden.port, 4321);
+  assert.equal(overridden.defaultAutoExecuteLocalTools, false);
+});
+
+test("resolveAutoExecuteLocalTools defaults on and allows explicit request overrides", () => {
+  const config = createConfig({ DEFAULT_AUTO_EXECUTE_LOCAL_TOOLS: "true" });
+  assert.equal(resolveAutoExecuteLocalTools({}, config), true);
+  assert.equal(resolveAutoExecuteLocalTools({ auto_execute_local_tools: false }, config), false);
+  assert.equal(resolveAutoExecuteLocalTools({ metadata: { auto_execute_local_tools: false } }, config), false);
+  assert.equal(resolveAutoExecuteLocalTools({ auto_execute_local_tools: "true" }, config), true);
 });
 
 test("resolveUpstreamModelId falls back to the configured MiMo model for OpenAI aliases", () => {
@@ -460,6 +471,113 @@ test("enabled bridge keys protect /v1 routes", async () => {
     body: JSON.stringify({ messages: [] }),
   });
   assert.equal(aliasAuthenticated.status, 400);
+});
+
+test("streaming chat auto-executes local tools by default and returns the final answer", { concurrency: false }, async () => {
+  const originalFetch = globalThis.fetch;
+  let chatCalls = 0;
+
+  globalThis.fetch = async (input, init) => {
+    const target = typeof input === "string"
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
+
+    if (String(target).startsWith("https://example.invalid")) {
+      const url = new URL(target);
+
+      if (url.pathname === "/open-apis/bot/chat") {
+        chatCalls += 1;
+        const content = chatCalls === 1
+          ? '<tool_call>{"id":"call_models","name":"list_models","arguments":{}}</tool_call>'
+          : "桥接已自动执行工具并返回最终答案。";
+        const sse = [
+          "id:test",
+          "event:message",
+          `data:${JSON.stringify({ type: "text", content })}`,
+          "",
+          "id:test",
+          "event:finish",
+          'data:{"content":"[DONE]"}',
+          "",
+        ].join("\n");
+
+        return new Response(sse, {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream; charset=utf-8" },
+        });
+      }
+
+      if (url.pathname === "/open-apis/bot/config") {
+        return new Response(JSON.stringify({
+          code: 0,
+          data: {
+            modelConfigListNg: [
+              { name: "MiMo Pro", model: "mimo-v2-pro", isDefault: true },
+            ],
+          },
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      throw new Error(`Unexpected upstream path: ${url.pathname}`);
+    }
+
+    return originalFetch(input, init);
+  };
+
+  const config = createConfig({
+    PORT: "0",
+    MIMO_BASE_URL: "https://example.invalid",
+    MIMO_COOKIE: "serviceToken=abc; userId=1; xiaomichatbot_ph=ph123",
+    DEFAULT_MODEL: "mimo-v2-pro",
+    ACCOUNT_STORE_FILE: path.join(tempDir, "stream-accounts.json"),
+    KEY_STORE_FILE: path.join(tempDir, "stream-keys.json"),
+  });
+
+  const app = createApp(config);
+  const tempServer = await new Promise((resolve) => {
+    const instance = app.listen(0, () => resolve(instance));
+  });
+
+  try {
+    const address = tempServer.address();
+    const response = await originalFetch(`http://127.0.0.1:${address.port}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-4o",
+        stream: true,
+        messages: [{ role: "user", content: "先列出模型，再给我一句总结。" }],
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: "list_models",
+              description: "List available models.",
+              parameters: { type: "object", properties: {} },
+            },
+          },
+        ],
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    const body = await response.text();
+    assert.match(body, /chat\.completion\.chunk/);
+    assert.match(body, /桥接已自动执行工具并返回最终答案/);
+    assert.doesNotMatch(body, /"tool_calls"/);
+    assert.match(body, /\[DONE\]/);
+    assert.equal(chatCalls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await new Promise((resolve, reject) => {
+      tempServer.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
 });
 
 test("app falls back to memory mode when state files are not writable", async () => {

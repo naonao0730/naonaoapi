@@ -69,7 +69,9 @@ http://localhost:3000
 - The dashboard is static and does not require a frontend build step.
 - The dashboard includes account pool management, API key management, a chat playground, and a separate Responses API lab.
 - `ENABLE_EXEC_TOOL=false` by default. Only enable local command execution if you trust the environment.
-- The bridge can expose tool definitions and optionally auto-execute local tools through request metadata.
+- `DEFAULT_AUTO_EXECUTE_LOCAL_TOOLS=true` by default, so bridge-managed tools can run server-side and return the final answer without relying on the client to perform a tool loop.
+- Clients can still override tool execution per request with `auto_execute_local_tools` or `metadata.auto_execute_local_tools`.
+- Streaming remains available in Mode B: the bridge opens the SSE response immediately, keeps it alive during hidden tool rounds, and streams the final assistant output after the server-side tool loop completes.
 - When at least one managed bridge API key is enabled, requests to `/v1/*` must include `Authorization: Bearer <key>`.
 - Managed MiMo accounts can be added directly by cookie, and the bridge can route them in `round_robin` or `single` mode.
 - Accounts track success/failure counts, last error, and consecutive failures. When failures reach `ACCOUNT_FAILURE_THRESHOLD`, the account enters cooldown for `ACCOUNT_COOLDOWN_MS`.

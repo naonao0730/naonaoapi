@@ -611,7 +611,7 @@
                 <textarea id="chatPrompt">请用中文简短介绍一下这个桥接服务，并给一个实际使用场景。</textarea>
               </div>
               <label class="checkline">
-                <input id="autoExecute" type="checkbox" />
+                <input id="autoExecute" type="checkbox" checked />
                 <span>当模型请求本地工具时，自动在桥接内部继续执行。</span>
               </label>
               <div class="inline-actions">
@@ -648,7 +648,7 @@
                 <textarea id="responsesPrompt">请用两条要点总结这个桥接服务能做什么。</textarea>
               </div>
               <label class="checkline">
-                <input id="responsesAutoExecute" type="checkbox" />
+                <input id="responsesAutoExecute" type="checkbox" checked />
                 <span>Responses 路由也自动执行本地工具。</span>
               </label>
               <div class="inline-actions">
@@ -1092,6 +1092,8 @@
           fillModelSelect(refs.chatModel, config.config.models, config.config.defaultModel);
           fillModelSelect(refs.responsesModel, config.config.models, config.config.defaultModel);
           fillModelSelect(refs.uploadModel, config.config.models, config.config.defaultModel);
+          refs.autoExecute.checked = Boolean(config.config.defaultAutoExecuteLocalTools);
+          refs.responsesAutoExecute.checked = Boolean(config.config.defaultAutoExecuteLocalTools);
           renderAccountPool(config.config.accountPool);
           renderKeyPool(config.config.keyPool);
           refs.examplesConsole.textContent = pretty(examples.data);
