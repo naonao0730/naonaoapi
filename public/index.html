@@ -340,6 +340,11 @@
         font-size: 0.9rem;
       }
 
+      pre.bad {
+        background: #31151d;
+        color: #ffd7df;
+      }
+
       .console-meta {
         margin-bottom: 10px;
         color: var(--muted);
@@ -488,7 +493,7 @@
               <div class="panel-head">
                 <div>
                   <h2 class="panel-title">Account Pool</h2>
-                  <p class="panel-subtitle">Add MiMo accounts by cookie, switch routing mode, and choose the active account for single-account mode.</p>
+                  <p class="panel-subtitle">Add MiMo accounts by cookie or full curl, preview the extracted result, switch routing mode, and choose the active account for single-account mode.</p>
                 </div>
               </div>
               <div class="field-grid">
@@ -519,6 +524,7 @@
                 <span>Enable this account immediately after creation.</span>
               </label>
               <div class="inline-actions">
+                <button class="secondary" id="previewAccountInput">Preview Parse</button>
                 <button class="accent" id="addAccount">Add Account</button>
                 <button class="secondary" id="saveStrategy">Save Strategy</button>
                 <button class="secondary" id="saveActiveAccount">Save Active</button>
@@ -526,6 +532,8 @@
                 <button class="secondary" id="refreshAccounts">Refresh</button>
                 <button class="secondary" id="deleteAccount">Delete Selected</button>
               </div>
+              <div class="console-meta" id="accountParseMeta">No parse preview yet.</div>
+              <pre id="accountParsePreview" class="empty">Paste a cookie or curl command, then click Preview Parse.</pre>
               <pre id="accountsConsole">Loading account pool...</pre>
             </article>
           </div>
@@ -770,12 +778,15 @@
         accountName: document.getElementById("accountName"),
         accountCookie: document.getElementById("accountCookie"),
         accountEnabled: document.getElementById("accountEnabled"),
+        previewAccountInput: document.getElementById("previewAccountInput"),
         addAccount: document.getElementById("addAccount"),
         saveStrategy: document.getElementById("saveStrategy"),
         saveActiveAccount: document.getElementById("saveActiveAccount"),
         checkAccount: document.getElementById("checkAccount"),
         refreshAccounts: document.getElementById("refreshAccounts"),
         deleteAccount: document.getElementById("deleteAccount"),
+        accountParseMeta: document.getElementById("accountParseMeta"),
+        accountParsePreview: document.getElementById("accountParsePreview"),
         accountsConsole: document.getElementById("accountsConsole"),
         bridgeKeyName: document.getElementById("bridgeKeyName"),
         bridgeKeyCustom: document.getElementById("bridgeKeyCustom"),
@@ -833,6 +844,20 @@
       function setLoading(message) {
         refs.runtimeStatus.textContent = message;
         refs.runtimeStatus.classList.remove("bad");
+      }
+
+      function setAccountParsePreview(label, payload, isError = false) {
+        refs.accountParseMeta.textContent = label;
+        refs.accountParsePreview.textContent = pretty(payload);
+        refs.accountParsePreview.classList.toggle("empty", false);
+        refs.accountParsePreview.classList.toggle("bad", isError);
+      }
+
+      function resetAccountParsePreview() {
+        refs.accountParseMeta.textContent = "No parse preview yet.";
+        refs.accountParsePreview.textContent = "Paste a cookie or curl command, then click Preview Parse.";
+        refs.accountParsePreview.classList.add("empty");
+        refs.accountParsePreview.classList.remove("bad");
       }
 
       function resolveTab(tabId) {
@@ -1087,10 +1112,35 @@
         }
       }
 
+      async function previewAccountInput() {
+        const input = refs.accountCookie.value.trim();
+        if (!input) {
+          setConsole("Account preview validation", { error: "Cookie / cURL must not be empty." }, true);
+          return;
+        }
+
+        refs.previewAccountInput.disabled = true;
+        try {
+          setLoading("Parsing account input...");
+          const payload = await requestJson("/api/accounts/parse-input", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ input }),
+          });
+          setAccountParsePreview("Parsed account input", payload.data, false);
+          setConsole("Account input preview", payload, false);
+        } catch (error) {
+          setAccountParsePreview("Parse failed", { error: error.message }, true);
+          setConsole("Account input preview failed", { error: error.message }, true);
+        } finally {
+          refs.previewAccountInput.disabled = false;
+        }
+      }
+
       async function addAccount() {
         const cookie = refs.accountCookie.value.trim();
         if (!cookie) {
-          setConsole("Account validation", { error: "Cookie must not be empty." }, true);
+          setConsole("Account validation", { error: "Cookie / cURL must not be empty." }, true);
           return;
         }
 
@@ -1109,6 +1159,7 @@
           renderAccountPool(payload.accounts);
           refs.accountName.value = "";
           refs.accountCookie.value = "";
+          resetAccountParsePreview();
           setConsole("Account created", payload, false);
         } catch (error) {
           setConsole("Account creation failed", { error: error.message }, true);
@@ -1473,6 +1524,7 @@
       refs.runResponses.addEventListener("click", runResponses);
       refs.runUpload.addEventListener("click", uploadFile);
       refs.refreshExamples.addEventListener("click", refreshExamples);
+      refs.previewAccountInput.addEventListener("click", previewAccountInput);
       refs.addAccount.addEventListener("click", addAccount);
       refs.refreshAccounts.addEventListener("click", refreshAccounts);
       refs.saveStrategy.addEventListener("click", saveStrategy);
@@ -1490,8 +1542,10 @@
       refs.conversationPicker.addEventListener("change", () => {
         refs.conversationId.value = refs.conversationPicker.value;
       });
+      refs.accountCookie.addEventListener("input", resetAccountParsePreview);
 
       activateTab(readTabFromHash(), { updateHash: false });
+      resetAccountParsePreview();
       bootstrap();
     </script>
   </body>

@@ -241,6 +241,22 @@ export function createApp(config = createConfig()) {
     res.json({ ok: true, data: getAccountsView(state, config) });
   });
 
+  app.post("/api/accounts/parse-input", (req, res) => {
+    try {
+      const input = String(req.body?.input || "").trim();
+      if (!input) {
+        return res.status(400).json({ ok: false, error: "input must not be empty" });
+      }
+
+      res.json({
+        ok: true,
+        data: buildAccountInputPreview(input),
+      });
+    } catch (error) {
+      res.status(400).json({ ok: false, error: formatError(error) });
+    }
+  });
+
   app.post("/api/accounts", (req, res) => {
     try {
       const account = createAccount(state, req.body || {});
@@ -1203,6 +1219,28 @@ function recordUpstreamFailure(config, auth, error) {
 
 function formatError(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function buildAccountInputPreview(input) {
+  const parsed = parseCredentialInput(input);
+  return {
+    source: parsed.source,
+    hasCookie: Boolean(parsed.cookie),
+    hasPhValue: Boolean(parsed.phValue),
+    normalizedCookie: parsed.cookie,
+    cookieLength: parsed.cookie.length,
+    phValue: parsed.phValue,
+    userId: extractCookieValue(parsed.cookie, "userId") || "",
+    url: parsed.url || "",
+    headers: {
+      accept: parsed.headers.accept || "",
+      acceptLanguage: parsed.headers["accept-language"] || "",
+      origin: parsed.headers.origin || "",
+      referer: parsed.headers.referer || "",
+      userAgent: parsed.headers["user-agent"] || "",
+      timezone: parsed.headers["x-timezone"] || "",
+    },
+  };
 }
 
 function sendOpenAIError(res, error, status = 500, type = "server_error") {

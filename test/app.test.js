@@ -104,6 +104,7 @@ test("GET / serves the dashboard", async () => {
   const html = await response.text();
   assert.match(html, /Workspace Tabs/);
   assert.match(html, /data-tab-target="accounts"/);
+  assert.match(html, /Preview Parse/);
   assert.match(html, /Conversation Explorer/);
   assert.match(html, /Responses Lab/);
 });
@@ -207,6 +208,23 @@ test("account creation accepts full curl snippets and extracts the cookie", asyn
   assert.ok(stored);
   assert.equal(stored.cookie, 'serviceToken="abc123"; userId=1; xiaomichatbot_ph="quoted+token=="');
   assert.equal(stored.phValue, "quoted+token==");
+});
+
+test("account input preview endpoint parses curl snippets before saving", async () => {
+  const response = await fetch(`${baseUrl}/api/accounts/parse-input`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ input: CURL_SAMPLE }),
+  });
+
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.ok, true);
+  assert.equal(payload.data.source, "curl");
+  assert.equal(payload.data.userId, "1");
+  assert.equal(payload.data.phValue, "quoted+token==");
+  assert.equal(payload.data.normalizedCookie, 'serviceToken="abc123"; userId=1; xiaomichatbot_ph="quoted+token=="');
+  assert.equal(payload.data.headers.origin, "https://aistudio.xiaomimimo.com");
 });
 
 test("admin export and import round-trip managed state", async () => {
